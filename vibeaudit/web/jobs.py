@@ -95,6 +95,11 @@ class JobStore:
             return job
         return None
 
+    def delete(self, job_id: str) -> None:
+        with self.lock:
+            self.jobs.pop(job_id, None)
+        shutil.rmtree(self._dir(job_id), ignore_errors=True)
+
     def report_json(self, job_id: str) -> Optional[Path]:
         p = self._dir(job_id) / "report.json"
         return p if p.exists() else None

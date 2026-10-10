@@ -173,6 +173,21 @@ def latest_audit_per_project(user_db_id: int) -> List[Dict[str, Any]]:
     return list(seen.values())
 
 
+def delete_project(user_db_id: int, project_id: str) -> List[str]:
+    with _lock, _conn() as c:
+        rows = c.execute("SELECT id FROM audits WHERE user_id=? AND project_id=?",
+                         (user_db_id, project_id)).fetchall()
+        ids = [r["id"] for r in rows]
+        c.execute("DELETE FROM audits WHERE user_id=? AND project_id=?", (user_db_id, project_id))
+    return ids
+
+
+def delete_audit_row(user_db_id: int, audit_id: str) -> bool:
+    with _lock, _conn() as c:
+        cur = c.execute("DELETE FROM audits WHERE id=? AND user_id=?", (audit_id, user_db_id))
+        return cur.rowcount > 0
+
+
 def audit_owner(audit_id: str) -> Optional[int]:
     with _conn() as c:
         r = c.execute("SELECT user_id FROM audits WHERE id=?", (audit_id,)).fetchone()

@@ -427,6 +427,8 @@ const api = {
   async askAssistant(question) { return http('POST', '/assistant', { question }); },
   // GET /github/repos  (repos où l'App est installée, pour lancer un audit/fix)
   async githubRepos() { return http('GET', '/github/repos'); },
+  // DELETE /projects/:id  (supprimer un projet et ses analyses)
+  async deleteProject(id) { return http('DELETE', '/projects/' + id); },
   // POST /audits
   async startAudit(payload) {
     if (!CONFIG.USE_MOCK) {
@@ -928,7 +930,7 @@ async function loadWorkspace() {
 }
 function projectsTable(projects) {
   return `<div class="tbl"><table style="min-width:980px"><thead><tr>
-    <th style="width:28px"><input class="check" type="checkbox" id="selAll" aria-label="Select all projects"></th><th>Project</th><th>Score</th><th>Last scan</th><th class="num">Code findings</th><th class="num">Supply chain findings</th><th class="num">Scanned dependencies</th><th class="num">Workflow issues</th><th>Tags</th></tr></thead><tbody>
+    <th style="width:28px"><input class="check" type="checkbox" id="selAll" aria-label="Select all projects"></th><th>Project</th><th>Score</th><th>Last scan</th><th class="num">Code findings</th><th class="num">Supply chain findings</th><th class="num">Scanned dependencies</th><th class="num">Workflow issues</th><th>Tags</th><th>Actions</th></tr></thead><tbody>
     ${projects.map(p => { const t = scoreTone(p.score); return `<tr>
       <td><input class="check" type="checkbox" data-sel="${p.id}" aria-label="Select ${esc(p.repo)}"></td>
       <td><a href="#/app/findings?project=${p.id}" style="display:inline-flex;align-items:center;gap:8px;color:var(--link);text-decoration:none;font-weight:500">${ICON_GIT}${esc(p.repo)}</a></td>
@@ -939,6 +941,7 @@ function projectsTable(projects) {
       <td class="num" style="color:var(--link)">${p.scanned_dependencies}</td>
       <td class="num">${p.workflow_issues}</td>
       <td><span style="display:flex;flex-wrap:wrap;gap:6px">${p.tags.concat(p.commits_since_scan ? ['re-scan advised'] : []).map(x => `<span class="tag glass-soft">${esc(x)}</span>`).join('')}</span></td>
+      <td><button class="btn btn-sm" type="button" data-del="${p.id}" style="color:var(--crit);font-weight:500">Delete</button></td>
     </tr>`; }).join('')}</tbody></table></div>`;
 }
 function bindProjectsTable() {
@@ -950,6 +953,11 @@ function bindProjectsTable() {
     if (!ids.length) { toast('Select at least one project to re-scan'); return; }
     await Promise.all(ids.map(id => api.rescan(id))); toast('Re-scan started for ' + ids.length + ' project' + (ids.length > 1 ? 's' : '')); render();
   });
+  document.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
+    if (!confirm('Delete this project and all its audits? This cannot be undone.')) return;
+    try { await api.deleteProject(b.dataset.del); toast('Project deleted'); render(); }
+    catch (e) { toast('Delete failed: ' + e.message); }
+  }));
 }
 
 /* Assistant IA (questions cybersécurité) */
@@ -979,9 +987,7 @@ async function screenDashboard() {
     $app.innerHTML = shell('dashboard', `<div class="page-head"><div><p class="eyebrow">Welcome</p><h1 class="serif h1">Overview</h1></div></div>
       <section class="glass card stack"><h2 class="h2">No audit yet</h2><p style="margin:0;font-size:15px;line-height:1.5">Run your first audit to see your score, findings and fixes here.</p>
         <div style="display:flex;flex-wrap:wrap;gap:10px"><a class="btn btn-lime" href="#/">Quick audit (URL)</a><a class="btn btn-mint" href="#/deep">Deep audit (GitHub repo or ZIP)</a></div>
-        <p class="muted" style="margin:0;font-size:13px">To use the fix feature later, run a deep audit on a GitHub repository where the Syberia app is installed.</p></section>
-      ${askBox()}`);
-    wireAsk();
+        <p class="muted" style="margin:0;font-size:13px">To use the fix feature later, run a deep audit on a GitHub repository where the Syberia app is installed.</p></section>`);
     return;
   }
   const avg = Math.round(projects.reduce((s, p) => s + p.score, 0) / projects.length);
@@ -995,7 +1001,6 @@ async function screenDashboard() {
   const ifFixed = Math.max(0, 100 - worst.findings.filter(f => isOpen(f) && (f.severity === 'medium' || f.severity === 'low')).reduce((s, f) => s + WEIGHTS[f.severity], 0));
   const inner = `<div class="page-head"><div><p class="eyebrow">Good afternoon</p><h1 class="serif h1">Overview</h1></div>
       <div style="display:flex;flex-wrap:wrap;gap:10px"><a class="btn" href="#/" style="font-weight:500">Quick audit</a><a class="btn btn-lime" href="#/deep">+ New project</a></div></div>
-    ${askBox(`Ask anything: why is ${esc(worst.name)} at ${worst.score}? what should I fix first?`)}
     <div class="row">
       <div style="flex:2 1 420px;display:flex;flex-direction:column;gap:18px">
         <div class="row" style="gap:14px">
@@ -1048,6 +1053,7 @@ async function screenFindings(params) {
     const rows = findings.filter(isOpen).filter(f => (st.project === 'all' || f.project_id === st.project) && (st.sev === 'all' || f.severity === st.sev)).sort((a, b) => SEV_ORDER[a.severity] - SEV_ORDER[b.severity]);
     const chips = (list, key) => list.map(([v, l]) => `<button class="btn btn-sm ${st[key] === v ? 'btn-mint' : ''}" type="button" aria-pressed="${st[key] === v}" data-${key}="${v}">${l}</button>`).join('');
     const sel = st.project === 'all' ? '' : st.project;
+    const repoIds = new Set(projects.filter(p => p.has_repo).map(p => p.id));
     const OWASP10 = [['A01', 'Broken Access Control'], ['A02', 'Cryptographic Failures'], ['A03', 'Injection'], ['A04', 'Insecure Design'], ['A05', 'Security Misconfiguration'], ['A06', 'Vulnerable & Outdated Components'], ['A07', 'Identification & Authentication Failures'], ['A08', 'Software & Data Integrity Failures'], ['A09', 'Security Logging & Monitoring Failures'], ['A10', 'Server-Side Request Forgery']];
     const owaspScope = findings.filter(isOpen).filter(f => st.project === 'all' || f.project_id === st.project);
     const owaspCount = code => owaspScope.filter(f => (f.owasp || '').startsWith(code)).length;
@@ -1057,7 +1063,7 @@ async function screenFindings(params) {
       <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="muted" style="font-size:13px;margin-right:4px">Project</span>${chips([['all', 'All projects']].concat(projects.map(p => [p.id, p.name])), 'project')}
         <span class="muted" style="font-size:13px;margin:0 4px 0 12px">Severity</span>${chips([['all', 'All'], ['critical', 'Critical'], ['high', 'High'], ['medium', 'Medium']], 'sev')}</div>
       <div class="f-top" style="align-items:center"><span style="font-size:14px;color:var(--text-2)">${rows.length} open issue${rows.length === 1 ? '' : 's'}</span>
-        ${rows.length ? `<a class="btn btn-lime" href="#/app/fixes/${sel || rows[0].project_id}${sel ? '' : '?select=' + rows.filter(f => f.project_id === rows[0].project_id).map(f => f.id).join(',')}">Fix ${sel ? 'these issues' : 'issues in ' + esc(rows[0].project_id)}</a>` : ''}</div>
+        ${rows.length && repoIds.has(sel || rows[0].project_id) ? `<a class="btn btn-lime" href="#/app/fixes/${sel || rows[0].project_id}${sel ? '' : '?select=' + rows.filter(f => f.project_id === rows[0].project_id).map(f => f.id).join(',')}">Fix ${sel ? 'these issues' : 'issues in ' + esc(rows[0].project_id)}</a>` : (rows.length ? '<span class="muted" style="font-size:13px">URL audit: advice only. Audit the GitHub repo to enable fixes.</span>' : '')}</div>
       ${rows.length ? rows.map(f => `<article class="finding glass lift" style="border-radius:24px;padding:18px 22px;gap:18px"><div class="rail rail-${f.severity}"></div><div class="f-body" style="gap:8px">
         <div class="f-top" style="align-items:center"><div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">${sevChip(f.severity)}<a class="tag glass-soft" href="#/app/findings?project=${f.project_id}" style="text-decoration:none;color:var(--link)">${esc(f.project_id)}</a><span class="mono muted" style="font-size:12px">${esc(f.found_at)}</span></div>
           ${f.proof.confirmed ? '<span class="chip" style="background:rgba(200,242,74,.35);color:#2F5A1A">Confirmed by live test</span>' : ''}</div>
@@ -1068,7 +1074,7 @@ async function screenFindings(params) {
         <div class="code" id="d-${f.id}" style="padding:10px 0">${f.code.length ? f.code.map(l => `<div class="${l.hit ? 'hit' : ''}"><span class="ln">${l.n}</span>${esc(l.text)}</div>`).join('') : `<div>${esc(f.technical_detail || f.summary)}</div>`}</div>
         <p class="mono muted" style="margin:0;font-size:12px">${esc(f.file)}${f.line ? ':' + f.line : ''} · ${esc(f.cwe)} · OWASP ${esc(f.owasp)}${f.detected_by && f.detected_by.length ? ' · found by ' + esc(f.detected_by.join(', ')) : ''}</p>
         ${f.references && f.references.length ? `<p class="mono muted" style="margin:0;font-size:12px">References: ${f.references.map(u => `<a href="${esc(u)}" target="_blank" rel="noopener" style="color:var(--link)">${esc(u.replace(/^https?:\/\//, '').slice(0, 48))}</a>`).join(' · ')}</p>` : ''}
-        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px"><a class="btn btn-lime btn-sm" href="#/app/fixes/${f.project_id}?select=${f.id}">Fix this</a></div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">${repoIds.has(f.project_id) ? `<a class="btn btn-lime btn-sm" href="#/app/fixes/${f.project_id}?select=${f.id}">Fix this</a>` : '<span class="muted" style="font-size:12px">Advice only (URL audit). Connect the GitHub repo to fix.</span>'}</div>
       </div></article>`).join('') : '<div class="glass card"><p style="margin:0">No open issues match these filters. Pick another project or severity.</p></div>'}`;
     document.querySelectorAll('[data-project]').forEach(b => b.addEventListener('click', () => { st.project = b.dataset.project; drawList(); }));
     document.querySelectorAll('[data-sev]').forEach(b => b.addEventListener('click', () => { st.sev = b.dataset.sev; drawList(); }));
@@ -1121,7 +1127,7 @@ async function screenFixes(projectId, select) {
     const ids = open.filter(f => sel[f.id]).map(f => f.id), locked = phase !== 'select', after = preview();
     const done = ids.filter(id => progress[id] && progress[id].progress >= 100).length, t = scoreTone(after);
     $app.innerHTML = shell('fixes', `<div class="page-head"><div><p class="eyebrow">${phase === 'select' ? 'Choose the issues to fix. Critical and high are selected for you.' : phase === 'fixing' ? 'The agent is fixing and re-testing each issue.' : 'Done. Choose how to put the fixed version live.'}</p><h1 class="serif h1">Fix ${esc(p.name)}</h1></div>
-        <div class="glass" style="display:flex;align-items:center;gap:14px;padding:12px 20px;border-radius:24px"><span class="muted" style="font-size:13px">Score</span><span class="serif" style="font-size:34px;line-height:1;color:#C42B30">${before}</span><span class="muted">→</span><span class="serif" style="font-size:46px;line-height:1;color:${after >= 80 ? 'var(--ok)' : after >= 60 ? 'var(--high)' : 'var(--crit)'}">${after}</span></div></div>
+        <div class="glass" style="display:flex;align-items:center;gap:14px;padding:12px 20px;border-radius:24px"><span class="muted" style="font-size:13px">Score<br><span style="font-size:11px">now → projected</span></span><span class="serif" style="font-size:34px;line-height:1;color:#C42B30">${before}</span><span class="muted">→</span><span class="serif" style="font-size:46px;line-height:1;color:${after >= 80 ? 'var(--ok)' : after >= 60 ? 'var(--high)' : 'var(--crit)'}">${after}</span></div></div>
       ${projects.length > 1 ? `<div style="display:flex;flex-wrap:wrap;gap:8px">${projects.map(x => `<a class="btn btn-sm ${x.id === p.id ? 'btn-mint' : ''}" href="#/app/fixes/${x.id}" ${x.id === p.id ? 'aria-current="page"' : ''}>${esc(x.name)}</a>`).join('')}</div>` : ''}
       ${open.length || phase !== 'select' ? `<section class="glass" style="border-radius:30px;padding:10px">
         <div class="f-top" style="align-items:center;padding:12px 14px 14px">
@@ -1140,7 +1146,8 @@ async function screenFixes(projectId, select) {
           </li>`; }).join('')}
         </ul></section>` : `<div class="glass card"><p style="margin:0">No open issues on ${esc(p.name)}. <a href="#/app/passport/${p.id}">Share the security passport</a>.</p></div>`}
       ${phase === 'select' && open.length ? '<p class="muted" style="margin:0;padding:0 8px;font-size:14px;line-height:1.5">For each issue the agent writes the fix and prepares a pull request you review. Nothing is changed in your repository until you deploy and merge it.</p>' : ''}
-      ${phase === 'done' ? `<section style="display:flex;flex-direction:column;gap:16px"><h2 class="serif" style="margin:0;font-size:36px;line-height:1.05">Your fixed version is ready. Put it live.</h2>
+      ${phase === 'done' ? `<section style="display:flex;flex-direction:column;gap:16px"><h2 class="serif" style="margin:0;font-size:36px;line-height:1.05">Review the pull request to apply these fixes.</h2>
+        <p class="muted" style="margin:-6px 0 0;font-size:14px;line-height:1.5">The score above is a projection. It becomes real only after you merge the pull request in GitHub and run the audit again. Opening the PR does not change your live score.</p>
         <div class="row" style="gap:16px">
           <div class="deploy insight" style="min-height:0"><div class="f-top" style="align-items:center"><strong style="font-size:18px">GitHub</strong><span class="chip glass-soft" style="color:#2F5A1A">Connected</span></div><span class="mono" style="font-size:13px;color:var(--text-2)">${esc(p.repo)} · main</span><span style="font-size:14px;line-height:1.45;color:var(--text-2)">One pull request with all ${ids.length} fixes. You review and merge it.</span><button class="btn btn-lime" style="margin-top:auto" type="button" id="deploy">Deploy to GitHub</button></div>
           <div class="deploy glass lift"><strong style="font-size:18px">Other tools</strong><span class="muted" style="font-size:14px;line-height:1.45">Connect one to deploy from here.</span><div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:auto">${['GitLab', 'Bitbucket', 'Vercel'].map(x => `<button class="btn btn-sm" type="button" data-toast="${x} connection arrives in the next version">${x}</button>`).join('')}</div></div>
@@ -1191,6 +1198,16 @@ async function screenFixes(projectId, select) {
 async function screenPassport(projectId) {
   const { projects } = await loadWorkspace();
   if (!projects.length) { $app.innerHTML = shell('passport', `<div class="page-head"><h1 class="serif h1">Security passport</h1></div><div class="glass card"><p style="margin:0">Run an audit first to generate a passport. <a href="#/">Start an audit</a>.</p></div>`); return; }
+  // Vue liste : tous les projets, avec des boutons qui marchent vers le passeport et le rapport
+  if (!projectId) {
+    $app.innerHTML = shell('passport', `<div class="page-head"><div><p class="eyebrow">${projects.length} audit${projects.length > 1 ? 's' : ''}</p><h1 class="serif h1">Reports &amp; passports</h1></div></div>
+      <section class="glass card stack">${projects.map(p => `<div class="fix-row glass-soft" style="align-items:center;gap:12px">
+        <span style="flex:1 1 240px;display:flex;flex-direction:column;gap:2px"><strong style="font-size:16px">${esc(p.name)}</strong><span class="mono muted" style="font-size:12px">${esc(p.repo || '')} · score ${p.score}/100</span></span>
+        <a class="btn btn-sm btn-lime" href="#/app/passport/${esc(p.id)}">Open passport</a>
+        <a class="btn btn-sm" href="#/report/${esc(p.audit_id)}?view=founder">Open report</a>
+      </div>`).join('')}</section>`);
+    return;
+  }
   const p = projects.find(x => x.id === projectId) || projects[0];
   const fs = p.findings.slice().sort((a, b) => SEV_ORDER[a.severity] - SEV_ORDER[b.severity]);
   const init = initialScore(fs), score = p.score, fixed = fs.filter(f => !isOpen(f)), open = fs.filter(isOpen), v = verdict(score);
@@ -1211,7 +1228,7 @@ async function screenPassport(projectId) {
       <section><h3 style="margin:0 0 8px;font-size:18px;font-weight:600">Detail of checks</h3>
         ${fs.length ? fs.map(f => `<div class="divider" style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:14px 4px"><span style="flex:1 1 260px;font-size:15px">${esc(f.title)}</span><span style="flex:0 0 90px;font-size:14px;font-weight:600;color:var(--${f.severity === 'critical' ? 'crit' : f.severity === 'high' ? 'high' : 'med'})">${SEV_LABEL[f.severity]}</span><span class="chip ${isOpen(f) ? 'sev-low' : 'sev-fixed'}" style="font-size:13px;padding:5px 12px">${isOpen(f) ? 'Open' : 'Fixed · verified'}</span></div>`).join('') : '<p class="muted">No issues found.</p>'}
       </section>
-      <p style="margin:0;font-size:14px;line-height:1.55;color:var(--muted)">Each fixed issue was re-tested after the fix: the original attack no longer works. The score starts at 100 and loses 25 points per critical, 10 per high and 3 per medium issue still open.</p>
+      <p style="margin:0;font-size:14px;line-height:1.55;color:var(--muted)">"Fixed" means the pull request proposed by Syberia has been merged and the audit re-run. The score starts at 100 and loses 25 points per critical, 10 per high and 3 per medium issue still open.</p>
       <p class="divider muted" style="margin:0;padding-top:18px;font-size:12px;line-height:1.55">Audit performed on ${fmtDate(today)} against a selection of OWASP Top 10 checks. This report describes the state of the project at that date. It is not a guarantee of security and not a certification.</p>
     </article>`);
   document.getElementById('share').addEventListener('click', async () => {
@@ -1266,7 +1283,39 @@ async function screenSettings() {
     </section>`);
 }
 
-(async () => { try { const r = await api.me(); state.user = r && r.user ? r.user : null; } catch (e) {} render(); })();
+/* Chatbot flottant (bulle bas-droite) avec historique conservé pendant la session */
+function mountChat() {
+  if (document.getElementById('sybChat')) return;
+  let hist = []; try { hist = JSON.parse(localStorage.getItem('syberia_chat_v1') || '[]'); } catch (e) {}
+  const wrap = document.createElement('div'); wrap.id = 'sybChat';
+  wrap.innerHTML = `
+    <button id="sybChatBtn" aria-label="Open the security assistant" style="position:fixed;right:20px;bottom:20px;z-index:9999;width:56px;height:56px;border-radius:50%;border:none;cursor:pointer;background:#C8F24A;box-shadow:0 8px 24px rgba(0,0,0,.18);font-size:24px">💬</button>
+    <div id="sybChatPanel" style="position:fixed;right:20px;bottom:88px;z-index:9999;width:min(380px,calc(100vw - 40px));max-height:70vh;display:none;flex-direction:column;background:#fff;border:1px solid rgba(0,0,0,.1);border-radius:20px;box-shadow:0 16px 48px rgba(0,0,0,.22);overflow:hidden">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:14px 16px;background:#0f1a12;color:#fff"><strong style="font-size:15px">Security assistant</strong><div style="display:flex;gap:10px;align-items:center"><button id="sybChatClear" title="Clear history" style="background:none;border:none;color:#cbd5c0;cursor:pointer;font-size:13px">Clear</button><button id="sybChatClose" aria-label="Close" style="background:none;border:none;color:#fff;cursor:pointer;font-size:20px;line-height:1">×</button></div></div>
+      <div id="sybChatMsgs" style="flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;font-size:14px;line-height:1.5;background:#f6f7f4"></div>
+      <form id="sybChatForm" style="display:flex;gap:8px;padding:10px;border-top:1px solid rgba(0,0,0,.08)"><input id="sybChatIn" type="text" placeholder="Ask about your security…" style="flex:1;min-width:0;border:1px solid rgba(0,0,0,.15);border-radius:10px;padding:10px 12px;font-size:14px"><button type="submit" style="border:none;background:#C8F24A;border-radius:10px;padding:0 14px;cursor:pointer;font-weight:600">Send</button></form>
+    </div>`;
+  document.body.appendChild(wrap);
+  const panel = wrap.querySelector('#sybChatPanel'), msgs = wrap.querySelector('#sybChatMsgs'),
+        form = wrap.querySelector('#sybChatForm'), input = wrap.querySelector('#sybChatIn');
+  const save = () => { try { localStorage.setItem('syberia_chat_v1', JSON.stringify(hist.slice(-50))); } catch (e) {} };
+  const bubble = (role, text) => { const d = document.createElement('div'); d.style.cssText = 'max-width:85%;padding:10px 12px;border-radius:14px;white-space:pre-wrap;word-wrap:break-word;' + (role === 'user' ? 'align-self:flex-end;background:#C8F24A;color:#16301f' : 'align-self:flex-start;background:#fff;border:1px solid rgba(0,0,0,.08)'); d.textContent = text; return d; };
+  const draw = () => { msgs.innerHTML = ''; if (!hist.length) { const h = document.createElement('div'); h.style.cssText = 'color:#6b7280;font-size:13px'; h.textContent = 'Ask me anything about your security, your findings, or how to fix them.'; msgs.appendChild(h); } hist.forEach(m => msgs.appendChild(bubble(m.role, m.text))); msgs.scrollTop = msgs.scrollHeight; };
+  draw();
+  wrap.querySelector('#sybChatBtn').addEventListener('click', () => { const open = panel.style.display === 'flex'; panel.style.display = open ? 'none' : 'flex'; if (!open) { draw(); input.focus(); } });
+  wrap.querySelector('#sybChatClose').addEventListener('click', () => panel.style.display = 'none');
+  wrap.querySelector('#sybChatClear').addEventListener('click', () => { hist = []; save(); draw(); });
+  form.addEventListener('submit', async e => {
+    e.preventDefault(); const q = input.value.trim(); if (!q) return; input.value = '';
+    hist.push({ role: 'user', text: q }); draw(); save();
+    const pending = bubble('bot', '…'); msgs.appendChild(pending); msgs.scrollTop = msgs.scrollHeight;
+    try { const r = await api.askAssistant(q); pending.remove(); hist.push({ role: 'bot', text: r.answer || 'No answer.' }); }
+    catch (ex) { pending.remove(); hist.push({ role: 'bot', text: 'Unavailable: ' + ex.message }); }
+    draw(); save();
+  });
+}
+
+(async () => { try { const r = await api.me(); state.user = r && r.user ? r.user : null; } catch (e) {} render(); mountChat(); })();
 </script>
 </body>
 </html>
