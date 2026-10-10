@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audit {{ r.target }} : {{ r.score }}/100</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1b1f24; --muted: #5b6573; --line: #e3e6ea;
+    --critical: #b42318; --high: #d9480f; --medium: #b7791f; --low: #2f6f9f; --ok: #2b8a3e;
+    --code-bg: #0f172a; --code-text: #e2e8f0;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 17px; margin: 32px 0 12px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .summary { display: grid; grid-template-columns: 180px 1fr; gap: 16px; margin-top: 16px; }
+  .score { text-align: center; }
+  .score .num { font-size: 52px; font-weight: 700; line-height: 1; }
+  .score .grade { display: inline-block; margin-top: 8px; padding: 2px 10px; border-radius: 99px; color: #fff; font-weight: 600; }
+  .counts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .count { border-radius: 8px; padding: 10px; color: #fff; }
+  .count b { display: block; font-size: 26px; line-height: 1.1; }
+  .sev-critical { background: var(--critical); } .sev-high { background: var(--high); }
+  .sev-medium { background: var(--medium); } .sev-low { background: var(--low); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td, th { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .st-ok { color: var(--ok); font-weight: 600; } .st-skipped { color: var(--muted); font-weight: 600; } .st-error { color: var(--critical); font-weight: 600; }
+  .finding { margin-bottom: 12px; border-left: 5px solid var(--line); }
+  .finding.critical { border-left-color: var(--critical); } .finding.high { border-left-color: var(--high); }
+  .finding.medium { border-left-color: var(--medium); } .finding.low { border-left-color: var(--low); }
+  .f-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .badge { font-size: 12px; padding: 2px 8px; border-radius: 99px; color: #fff; font-weight: 600; white-space: nowrap; }
+  .tag { font-size: 12px; padding: 2px 8px; border-radius: 99px; background: #eef1f4; color: var(--muted); white-space: nowrap; }
+  .f-title { font-weight: 600; font-size: 15px; }
+  .loc { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; color: var(--muted); margin-top: 4px; word-break: break-all; }
+  pre { background: var(--code-bg); color: var(--code-text); padding: 10px 12px; border-radius: 6px; overflow-x: auto; font-size: 12.5px; margin: 8px 0; }
+  .desc { white-space: pre-line; margin: 8px 0; }
+  .fix { background: #eef8f0; border-radius: 6px; padding: 8px 10px; font-size: 14px; margin: 8px 0; }
+  .levels { margin-top: 10px; }
+  .levels .tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+  .levels button { border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 4px 10px; font-size: 13px; cursor: pointer; }
+  .levels button[aria-selected="true"] { background: var(--text); color: #fff; border-color: var(--text); }
+  .levels .panel { border: 1px solid var(--line); border-radius: 6px; padding: 10px; margin-top: 6px; white-space: pre-line; }
+  .levels .pending { color: var(--muted); font-style: italic; }
+  details { margin-top: 8px; } summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .filters button { border: 1px solid var(--line); background: #fff; border-radius: 99px; padding: 4px 12px; font-size: 13px; cursor: pointer; }
+  .filters button.on { background: var(--text); color: #fff; }
+  .scroll { overflow-x: auto; }
+  .summary > *, .finding { min-width: 0; }
+  pre { max-width: 100%; white-space: pre; }
+  @media (max-width: 640px) { .summary { grid-template-columns: 1fr; } .counts { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Audit de sécurité : {{ r.target }}</h1>
+  <div class="muted">Généré le {{ r.generated_at }} par {{ r.tool }} v{{ r.version }}. Audit à une date donnée, pas une garantie.</div>
+
+  <section class="summary">
+    <div class="card score">
+      <div class="muted">Score</div>
+      <div class="num">{{ r.score }}<span class="muted" style="font-size:18px">/100</span></div>
+      <span class="grade {{ 'sev-low' if r.grade in ['A','B'] else ('sev-medium' if r.grade == 'C' else 'sev-critical') }}">Note {{ r.grade }}</span>
+    </div>
+    <div class="card">
+      <div class="counts">
+        {% for s in ['critical','high','medium','low'] %}
+        <div class="count sev-{{ s }}"><b>{{ r.counts[s] }}</b>{{ sev_labels[s] }}</div>
+        {% endfor %}
+      </div>
+      <p class="muted" style="margin:12px 0 0">
+        {{ r.total }} faille(s) après fusion de {{ r.raw_total }} résultat(s) bruts.
+        Calcul : 100 moins {{ r.score_rule.critical }} par critique, {{ r.score_rule.high }} par haute, {{ r.score_rule.medium }} par moyenne, {{ r.score_rule.low }} par basse.
+      </p>
+    </div>
+  </section>
+
+  <h2>Scanners</h2>
+  <div class="card scroll">
+    <table>
+      <tr><th>Scanner</th><th>Statut</th><th>Détail</th><th>Durée</th></tr>
+      {% for s in r.scanners %}
+      <tr>
+        <td>{{ s.label }}</td>
+        <td class="st-{{ s.status }}">{{ {'ok':'OK','skipped':'Ignoré','error':'Erreur'}[s.status] }}</td>
+        <td>{{ s.message }}</td>
+        <td>{{ s.duration_s }} s</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+
+  <h2>Failles ({{ r.total }})</h2>
+  <div class="filters" id="filters">
+    <button class="on" data-f="all">Toutes</button>
+    {% for s in ['critical','high','medium','low'] %}{% if r.counts[s] %}<button data-f="{{ s }}">{{ sev_labels[s] }} ({{ r.counts[s] }})</button>{% endif %}{% endfor %}
+    {% for c, label in cat_labels.items() %}<button data-f="cat-{{ c }}">{{ label }}</button>{% endfor %}
+  </div>
+
+  {% if not r.findings %}<div class="card">Aucune faille détectée par les scanners qui ont tourné.</div>{% endif %}
+
+  {% for f in r.findings %}
+  <article class="card finding {{ f.severity }}" data-sev="{{ f.severity }}" data-cat="cat-{{ f.category }}" id="{{ f.id }}">
+    <div class="f-head">
+      <span class="badge sev-{{ f.severity }}">{{ f.severity_label }}</span>
+      <span class="tag">{{ f.category_label }}</span>
+      <span class="f-title">{{ f.title }}</span>
+    </div>
+    <div class="loc">{{ f.file or '' }}{% if f.line %}:{{ f.line }}{% endif %}{% if f.cwe %} · {{ f.cwe[:5] | join(', ') }}{% if f.cwe|length > 5 %} +{{ f.cwe|length - 5 }}{% endif %}{% endif %} · trouvé par : {{ f.sources | join(', ') }}{% if f.sources|length > 1 %} (recoupé){% endif %}</div>
+
+    {% if f.snippet %}<pre>{{ f.snippet }}</pre>{% endif %}
+    {% if f.description %}{% set dl = f.description.split('\n') %}<div class="desc">{{ dl[:6] | join('\n') }}</div>{% if dl|length > 6 %}<details><summary>Voir les {{ dl|length - 6 }} lignes suivantes</summary><div class="desc">{{ dl[6:] | join('\n') }}</div></details>{% endif %}{% endif %}
+    {% if f.fix_hint %}<div class="fix"><b>Piste de correction :</b> {{ f.fix_hint }}</div>{% endif %}
+
+    <div class="levels" data-id="{{ f.id }}">
+      <div class="tabs" role="tablist">
+        {% for lvl in levels %}<button role="tab" data-lvl="{{ lvl }}" aria-selected="{{ 'true' if loop.first else 'false' }}">{{ level_labels[lvl] }}</button>{% endfor %}
+      </div>
+      {% for lvl in levels %}
+      <div class="panel" data-lvl="{{ lvl }}" {% if not loop.first %}hidden{% endif %}>
+        {%- if f.explanations.get(lvl) %}{{ f.explanations[lvl] }}{% else %}<span class="pending">Explication {{ level_labels[lvl] | lower }} : générée par l'IA au module 2.</span>{% endif -%}
+      </div>
+      {% endfor %}
+    </div>
+
+    {% if f.references %}
+    <details><summary>Références ({{ f.references|length }})</summary>
+      <ul>{% for ref in f.references %}<li><a href="{{ ref }}" target="_blank" rel="noopener">{{ ref }}</a></li>{% endfor %}</ul>
+    </details>
+    {% endif %}
+    <details><summary>Preuves brutes des scanners ({{ f.evidence|length }})</summary>
+      {% for e in f.evidence %}<div class="muted">{{ e.source }} · règle {{ e.rule_id }}</div><pre>{{ e.raw | tojson(indent=2) }}</pre>{% endfor %}
+    </details>
+  </article>
+  {% endfor %}
+</main>
+<script>
+  // Onglets des 4 niveaux d'explication
+  document.querySelectorAll('.levels').forEach(function (box) {
+    box.querySelectorAll('button[data-lvl]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        box.querySelectorAll('button[data-lvl]').forEach(function (b) { b.setAttribute('aria-selected', b === btn ? 'true' : 'false'); });
+        box.querySelectorAll('.panel').forEach(function (p) { p.hidden = p.dataset.lvl !== btn.dataset.lvl; });
+      });
+    });
+  });
+  // Filtres par gravité et catégorie
+  var buttons = document.querySelectorAll('#filters button');
+  buttons.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      buttons.forEach(function (b) { b.classList.toggle('on', b === btn); });
+      var f = btn.dataset.f;
+      document.querySelectorAll('.finding').forEach(function (el) {
+        el.hidden = !(f === 'all' || el.dataset.sev === f || el.dataset.cat === f);
+      });
+    });
+  });
+</script>
+</body>
+</html>

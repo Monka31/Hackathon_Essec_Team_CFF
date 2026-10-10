@@ -1,0 +1,85 @@
+"""Semgrep : analyse statique du code (SAST), gratuit et sans quota."""
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+from typing import List
+
+from ..core.models import Evidence, Finding
+from .base import read_snippet, require_binary, run_cmd, to_rel
+
+NAME = "semgrep"
+
+# Jeux de règles du registre Semgrep (nécessite l'accès à semgrep.dev).
+# Si le réseau bloque, mettre SEMGREP_RULES_DIR=/chemin/vers/regles dans le .env.
+DEFAULT_CONFIGS = ["p/default", "p/javascript", "p/typescript", "p/react", "p/secrets"]
+
+SEVERITY_MAP = {"ERROR": "high", "WARNING": "medium", "INFO": "low"}
+
+
+def _severity(res: dict) -> str:
+    extra = res.get("extra", {})
+    meta = extra.get("metadata", {}) or {}
+    sev = SEVERITY_MAP.get(str(extra.get("severity", "")).upper(), "low")
+    # Impact et probabilité élevés : on remonte en critique
+    if sev == "high" and str(meta.get("impact", "")).upper() == "HIGH" and str(
+        meta.get("likelihood", "")
+    ).upper() == "HIGH":
+        sev = "critical"
+    return sev
+
+
+def _category(check_id: str) -> str:
+    cid = check_id.lower()
+    if "secret" in cid or "hardcoded" in cid or "credential" in cid or "api-key" in cid:
+        return "secret"
+    return "code"
+
+
+def scan(root: Path, timeout: int = 900) -> List[Finding]:
+    require_binary("semgrep", "brew install semgrep")
+    rules_dir = os.getenv("SEMGREP_RULES_DIR")
+    if rules_dir:
+        configs = [rules_dir]
+    else:
+        configs = [c.strip() for c in os.getenv("SEMGREP_CONFIGS", ",".join(DEFAULT_CONFIGS)).split(",") if c.strip()]
+
+    cmd = ["semgrep", "scan", "--json", "--quiet", "--metrics=off", "--timeout", "30"]
+    for c in configs:
+        cmd += ["--config", c]
+    cmd.append(".")
+    # 0 = rien trouvé, 1 = failles trouvées
+    proc = run_cmd(cmd, cwd=root, timeout=timeout, ok_codes=(0, 1))
+    data = json.loads(proc.stdout or "{}")
+
+    findings: List[Finding] = []
+    for res in data.get("results", []):
+        extra = res.get("extra", {})
+        meta = extra.get("metadata", {}) or {}
+        check_id = res.get("check_id", "semgrep")
+        rel = to_rel(root, res.get("path", ""))
+        line = (res.get("start") or {}).get("line")
+        cwe = meta.get("cwe") or []
+        if isinstance(cwe, str):
+            cwe = [cwe]
+        refs = meta.get("references") or []
+        if isinstance(refs, str):
+            refs = [refs]
+        short_rule = check_id.split(".")[-1].replace("-", " ")
+        findings.append(
+            Finding(
+                category=_category(check_id),
+                title=short_rule[:1].upper() + short_rule[1:],
+                severity=_severity(res),
+                file=rel,
+                line=line,
+                snippet=read_snippet(root, rel, line),
+                description=extra.get("message", ""),
+                cwe=[str(c).split(":")[0].strip() for c in cwe],
+                fix_hint=extra.get("fix"),
+                references=[str(r) for r in refs][:5],
+                evidence=[Evidence(source=NAME, rule_id=check_id, raw=res)],
+            )
+        )
+    return findings
