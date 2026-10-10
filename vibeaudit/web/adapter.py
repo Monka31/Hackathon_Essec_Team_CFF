@@ -99,6 +99,33 @@ def _explanations(f: Dict[str, Any]) -> Dict[str, str]:
     return {en: raw[fr] for fr, en in LEVEL_MAP.items() if raw.get(fr)}
 
 
+def _rich_summary(f: Dict[str, Any], expl: Dict[str, str]) -> str:
+    """Description détaillée : explication IA experte, sinon description du scanner, complétée
+    par la piste de correction, le paquet concerné et l'outil qui a détecté."""
+    parts: List[str] = []
+    main = expl.get("advanced") or expl.get("expert") or (f.get("description") or "").strip()
+    if main:
+        parts.append(main)
+    if f.get("package"):
+        parts.append(f"Affected package: {f['package']}.")
+    if f.get("fix_hint"):
+        parts.append(f"How to fix: {f['fix_hint']}")
+    srcs = f.get("sources") or []
+    if srcs:
+        parts.append("Detected by: " + ", ".join(SCANNER_LABELS.get(s, s) for s in srcs) + ".")
+    text = " ".join(parts).strip()
+    return text[:2000] or (f.get("title") or "")
+
+
+SCANNER_LABELS = {
+    "semgrep": "Semgrep (static analysis)", "gitleaks": "Gitleaks (secret scanning)",
+    "npm_audit": "npm audit (dependency database)", "snyk_code": "Snyk Code (SAST)",
+    "snyk_deps": "Snyk Open Source (SCA)", "snyk_dast": "Snyk API & Web (DAST)",
+    "web_passive": "Syberia passive web tests", "supabase_paste": "Supabase Security Advisor",
+    "supabase": "Supabase Security Advisor",
+}
+
+
 def _finding(f: Dict[str, Any], project_id: str, found_at: str) -> Dict[str, Any]:
     cat = f.get("category", "code")
     expl = _explanations(f)
@@ -122,7 +149,9 @@ def _finding(f: Dict[str, Any], project_id: str, found_at: str) -> Dict[str, Any
         "file": f.get("file") or "",
         "line": f.get("line"),
         "technical_detail": f.get("title", ""),
-        "summary": expl.get("expert") or (f.get("description") or "")[:1200],
+        "summary": _rich_summary(f, expl),
+        "references": [r for r in (f.get("references") or []) if r][:6],
+        "detected_by": sources,
         "code": _code(f.get("snippet")),
         "proof": {
             "confirmed": cross,

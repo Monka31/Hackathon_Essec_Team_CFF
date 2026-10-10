@@ -1063,9 +1063,11 @@ async function screenFindings(params) {
           ${f.proof.confirmed ? '<span class="chip" style="background:rgba(200,242,74,.35);color:#2F5A1A">Confirmed by live test</span>' : ''}</div>
         ${st.dev ? `<code class="mono" style="font-size:15px;font-weight:500">${esc(f.rule_id)}</code><span class="mono" style="font-size:13px;color:var(--link)">${esc(f.file)}${f.line ? ':' + f.line : ''} · ${esc(f.cwe)} · OWASP ${esc(f.owasp)}</span><p style="margin:0;font-size:14px;line-height:1.5">${esc(f.summary)}</p>`
           : `<h3 style="margin:0;font-size:18px;font-weight:600">${esc(f.title)}</h3><p style="margin:0;font-size:15px;line-height:1.5">${esc(f.impact)}</p>`}
+        ${f.summary ? `<p style="margin:0;font-size:14px;line-height:1.55;color:var(--text-2)">${esc(f.summary)}</p>` : ''}
         <div style="font-size:12px;color:var(--text-2);font-weight:600;margin-top:4px">Code &amp; detection</div>
         <div class="code" id="d-${f.id}" style="padding:10px 0">${f.code.length ? f.code.map(l => `<div class="${l.hit ? 'hit' : ''}"><span class="ln">${l.n}</span>${esc(l.text)}</div>`).join('') : `<div>${esc(f.technical_detail || f.summary)}</div>`}</div>
-        <p class="mono muted" style="margin:0;font-size:12px">${esc(f.file)}${f.line ? ':' + f.line : ''} · ${esc(f.cwe)} · OWASP ${esc(f.owasp)} · ${esc(f.proof.text)}</p>
+        <p class="mono muted" style="margin:0;font-size:12px">${esc(f.file)}${f.line ? ':' + f.line : ''} · ${esc(f.cwe)} · OWASP ${esc(f.owasp)}${f.detected_by && f.detected_by.length ? ' · found by ' + esc(f.detected_by.join(', ')) : ''}</p>
+        ${f.references && f.references.length ? `<p class="mono muted" style="margin:0;font-size:12px">References: ${f.references.map(u => `<a href="${esc(u)}" target="_blank" rel="noopener" style="color:var(--link)">${esc(u.replace(/^https?:\/\//, '').slice(0, 48))}</a>`).join(' · ')}</p>` : ''}
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px"><a class="btn btn-lime btn-sm" href="#/app/fixes/${f.project_id}?select=${f.id}">Fix this</a></div>
       </div></article>`).join('') : '<div class="glass card"><p style="margin:0">No open issues match these filters. Pick another project or severity.</p></div>'}`;
     document.querySelectorAll('[data-project]').forEach(b => b.addEventListener('click', () => { st.project = b.dataset.project; drawList(); }));
@@ -1223,16 +1225,30 @@ async function screenPassport(projectId) {
 /* 8 · Integrations */
 async function screenIntegrations() {
   const u = state.user || {};
-  $app.innerHTML = shell('integrations', `<div class="page-head"><div><p class="eyebrow">Connect the tools we read from and deploy to</p><h1 class="serif h1">Integrations</h1></div></div>
+  $app.innerHTML = shell('integrations', `<div class="page-head"><div><p class="eyebrow">Connect your projects</p><h1 class="serif h1">Integrations</h1></div></div>
     <section class="glass card stack">
       <div class="f-top" style="align-items:center"><div style="display:flex;align-items:center;gap:10px">${ICON_GIT}<strong style="font-size:18px">GitHub</strong></div><span class="chip glass-soft" style="color:#2F5A1A">${u.login ? 'Connected as ' + esc(u.login) : 'Not connected'}</span></div>
-      <p style="margin:0;font-size:14px;line-height:1.5;color:var(--text-2)">Used to sign you in, clone private repos for deep audits, and open pull requests with the fixes. To audit or fix a private repo, install the Syberia GitHub App on it.</p>
-      ${u.login ? '' : `<button class="btn btn-mint" type="button" data-github-login>Connect GitHub</button>`}
+      <p style="margin:0;font-size:14px;line-height:1.5;color:var(--text-2)">Sign-in, cloning private repos for deep audits, and opening pull requests all run through GitHub. Install the Syberia app on each repository you want to audit or fix.</p>
+      <div id="repoList" class="stack"><p class="muted" style="margin:0">Loading your repositories…</p></div>
     </section>
     <section class="glass card stack">
       <strong style="font-size:18px">Other tools</strong>
       <div style="display:flex;flex-wrap:wrap;gap:8px">${['GitLab', 'Bitbucket', 'Vercel', 'Supabase'].map(x => `<button class="btn btn-sm" type="button" data-toast="${x} integration arrives in the next version">${x}</button>`).join('')}</div>
     </section>`);
+  const box = document.getElementById('repoList');
+  if (!u.login) { box.innerHTML = '<button class="btn btn-mint" type="button" data-github-login>Connect GitHub</button>'; return; }
+  let data; try { data = await api.githubRepos(); } catch (e) { data = { configured: false, repos: [], install_url: null }; }
+  const repos = data.repos || [];
+  box.innerHTML = `${repos.length ? `<div class="muted" style="font-size:13px">Repositories where Syberia is installed (${repos.length}):</div>
+      <div style="display:flex;flex-direction:column;gap:8px">${repos.map(r => `<div class="fix-row glass-soft" style="align-items:center"><span style="flex:1;display:flex;align-items:center;gap:8px">${ICON_GIT}${esc(r.full_name)}${r.private ? ' <span class="muted" style="font-size:12px">· private</span>' : ''}</span><button class="btn btn-sm btn-lime" type="button" data-auditrepo="${esc(r.full_name)}">Audit</button></div>`).join('')}</div>`
+    : '<p style="margin:0">No repository connected yet.</p>'}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px"><a class="btn btn-mint btn-sm" href="${esc(data.install_url || '#')}" target="_blank" rel="noopener">Connect more repositories</a><button class="btn btn-sm" type="button" id="refreshRepos2">Refresh</button></div>`;
+  document.querySelectorAll('[data-auditrepo]').forEach(b => b.addEventListener('click', async () => {
+    b.disabled = true; b.textContent = 'Starting…';
+    try { const { audit_id } = await api.startAudit({ type: 'deep', provider: 'github', repo_url: b.dataset.auditrepo }); state.lastAuditId = audit_id; go('#/scan/' + audit_id); }
+    catch (ex) { toast('Could not start: ' + ex.message); b.disabled = false; b.textContent = 'Audit'; }
+  }));
+  const rb = document.getElementById('refreshRepos2'); if (rb) rb.addEventListener('click', () => render());
 }
 
 /* 9 · Settings */
