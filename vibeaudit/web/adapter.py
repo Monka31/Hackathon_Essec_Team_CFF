@@ -1,24 +1,57 @@
-"""Traduit le rapport interne vers le format attendu par le prototype (le [CONTRACT] de l'interface)."""
+"""Traduit le rapport interne vers le format attendu par le nouveau visuel (Syberia).
+
+Contrat (voir prototype.html [CONTRACT]) :
+  Finding = { id, project_id, severity, group: code|supply_chain|workflow,
+              title, impact, who_can_exploit, rule_id, category, owasp, cwe, layer,
+              confidence, file, line, technical_detail, summary,
+              code:[{n,text,hit}], proof:{confirmed,text}, fix_status, found_at }
+"""
 from __future__ import annotations
 
 import re
-import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
-# clés internes (FR) -> clés de l'interface (EN)
 LEVEL_MAP = {"debutant": "beginner", "intermediaire": "intermediate", "avance": "advanced", "expert": "expert"}
-CONF_MAP = {"haute": "high", "moyenne": "medium", "faible": "low"}
-CATEGORY_EN = {"code": "Code", "dependency": "Vulnerable dependency", "secret": "Exposed secret",
-               "config": "Database / configuration", "web": "Online app"}
+CONF_MAP = {"haute": "high", "moyenne": "medium", "faible": "low",
+            "high": "high", "medium": "medium", "low": "low"}
+GROUP = {"dependency": "supply_chain"}  # tout le reste -> "code"
+CATEGORY_EN = {"code": "Code issue", "dependency": "Vulnerable component", "secret": "Exposed secret",
+               "config": "Security misconfiguration", "web": "Online app"}
 LAYER = {"code": "application", "dependency": "supply chain", "secret": "frontend",
-         "config": "database", "web": "online app"}
-OWASP = {"code": "OWASP A03", "dependency": "OWASP A06", "secret": "OWASP A07",
-         "config": "OWASP A01", "web": "OWASP A05"}
+         "config": "configuration", "web": "online app"}
+OWASP = {"code": "A03", "dependency": "A06", "secret": "A07", "config": "A05", "web": "A05"}
 
 _SNIP = re.compile(r"^(>?)\s*(\d+)\s*\|\s?(.*)$")
 
 
-def _code(snippet: str | None) -> List[Dict[str, Any]]:
+def slugify(text: str) -> str:
+    s = re.sub(r"[^a-zA-Z0-9]+", "-", (text or "").lower()).strip("-")
+    return s[:60] or "project"
+
+
+def project_id_for(repo_url: Optional[str], app_url: Optional[str]) -> str:
+    if repo_url:
+        p = urlparse(repo_url)
+        parts = [x for x in p.path.split("/") if x]
+        if len(parts) >= 2:
+            return slugify(parts[0] + "-" + parts[1].replace(".git", ""))
+    if app_url:
+        return slugify(urlparse(app_url).netloc or app_url)
+    return "project"
+
+
+def project_name_for(repo_url: Optional[str], app_url: Optional[str]) -> str:
+    if repo_url:
+        parts = [x for x in urlparse(repo_url).path.split("/") if x]
+        if len(parts) >= 2:
+            return parts[1].replace(".git", "")
+    if app_url:
+        return urlparse(app_url).netloc or app_url
+    return "project"
+
+
+def _code(snippet: Optional[str]) -> List[Dict[str, Any]]:
     if not snippet:
         return []
     out = []
@@ -31,26 +64,23 @@ def _code(snippet: str | None) -> List[Dict[str, Any]]:
 
 def _explanations(f: Dict[str, Any]) -> Dict[str, str]:
     raw = f.get("explanations") or {}
-    out = {}
-    for fr, en in LEVEL_MAP.items():
-        if raw.get(fr):
-            out[en] = raw[fr]
-    return out
+    return {en: raw[fr] for fr, en in LEVEL_MAP.items() if raw.get(fr)}
 
 
-def _finding(f: Dict[str, Any]) -> Dict[str, Any]:
+def _finding(f: Dict[str, Any], project_id: str, found_at: str) -> Dict[str, Any]:
     cat = f.get("category", "code")
     expl = _explanations(f)
     sources = f.get("sources") or []
     cross = len(sources) > 1
     return {
         "id": f["id"],
+        "project_id": project_id,
         "severity": f.get("severity", "medium"),
+        "group": GROUP.get(cat, "code"),
         "title": f.get("title", ""),
-        # founder language
-        "impact": expl.get("beginner") or (f.get("description") or "").split("\n")[0][:300],
+        "impact": expl.get("beginner") or (f.get("description") or "").split("\n")[0][:300]
+                  or "This weakness could put your app or its data at risk.",
         "who_can_exploit": f.get("attack_scenario") or "An attacker able to reach this part of your app.",
-        # developer fields
         "rule_id": (f.get("evidence") or [{}])[0].get("rule_id") or cat,
         "category": CATEGORY_EN.get(cat, cat),
         "owasp": OWASP.get(cat, ""),
@@ -60,26 +90,28 @@ def _finding(f: Dict[str, Any]) -> Dict[str, Any]:
         "file": f.get("file") or "",
         "line": f.get("line"),
         "technical_detail": f.get("title", ""),
-        "summary": (f.get("description") or "")[:1200],
+        "summary": expl.get("expert") or (f.get("description") or "")[:1200],
         "code": _code(f.get("snippet")),
         "proof": {
             "confirmed": cross,
             "text": ("confirmed by two independent scanners (" + ", ".join(sources) + ")")
-                     if cross else ("detected by " + (sources[0] if sources else "scanner")
-                                    + " (static analysis, not an active attack test)"),
+                    if cross else ("detected by " + (sources[0] if sources else "scanner")
+                                   + " (static analysis, not an active attack test)"),
         },
         "fix_status": "open",
-        "pr_url": None,
-        # 4 niveaux pour le sélecteur
-        "explanations": expl,
+        "found_at": found_at,
+        "explanations": expl,      # bonus : garde les 4 niveaux si le visuel veut les afficher
         "fix_steps": f.get("fix_steps") or [],
     }
 
 
-def to_prototype(report: Dict[str, Any]) -> Dict[str, Any]:
-    findings = report.get("findings", [])
-    main, ignored = [], []
-    for f in findings:
+def to_prototype(report: Dict[str, Any], project_id: Optional[str] = None,
+                 project_name: Optional[str] = None) -> Dict[str, Any]:
+    repo_url, app_url = report.get("repo_url"), report.get("app_url")
+    pid = project_id or project_id_for(repo_url, app_url)
+    pname = project_name or project_name_for(repo_url, app_url)
+    findings, ignored = [], []
+    for f in report.get("findings", []):
         if f.get("ai_verdict") == "false_positive_suspected":
             ignored.append({
                 "rule_id": (f.get("evidence") or [{}])[0].get("rule_id") or f.get("category", ""),
@@ -87,29 +119,31 @@ def to_prototype(report: Dict[str, Any]) -> Dict[str, Any]:
                 "reason": f.get("confidence_reason") or f.get("attack_scenario") or "Likely not exploitable here.",
             })
         else:
-            main.append(_finding(f))
-    target = report.get("app_url") or report.get("repo_url") or report.get("target") or ""
+            findings.append(_finding(f, pid, "Today"))
+    target = app_url or repo_url or report.get("target") or ""
     return {
-        "audit_id": report.get("job_id") or report.get("target", ""),
-        "project": report.get("target", "project"),
+        "audit_id": report.get("job_id") or "",
+        "project_id": pid,
+        "project": pname,
         "target": target,
-        "type": "deep" if report.get("repo_url") else "quick",
+        "type": "deep" if repo_url else "quick",
         "scanned_at": report.get("generated_at"),
         "commit": None,
         "ai": report.get("ai"),
         "ai_summary": report.get("ai_summary"),
-        "findings": main,
+        "findings": findings,
         "ignored": ignored,
     }
 
 
+# ----------------------------------------------------------------- statut live
 STEP_EN = {"clone": "Cloning the GitHub repo", "snyk_code": "Snyk Code (code)",
-           "snyk_deps": "Snyk Open Source (dependencies)", "semgrep": "Semgrep (code)",
-           "gitleaks": "Gitleaks (secrets)", "npm_audit": "npm audit (dependencies)",
-           "supabase": "Supabase Advisor (database)", "web_passive": "Passive tests (online app)",
-           "snyk_dast": "Snyk API & Web (DAST)", "ai": "AI explanations (4 levels)", "report": "Report",
-           "supabase_paste": "Supabase Security Advisor (database)"}
-STATUS_EN = {"pending": "queued", "running": "running…", "ok": "done", "skipped": "skipped", "error": "error"}
+           "snyk_deps": "Snyk Open Source (dependencies)", "semgrep": "Reading your code (Semgrep)",
+           "gitleaks": "Looking for exposed secrets", "npm_audit": "Checking your dependencies",
+           "supabase": "Supabase Advisor (database)", "web_passive": "Testing your app as an anonymous visitor",
+           "snyk_dast": "Snyk API & Web (DAST)", "ai": "Writing your report in plain language",
+           "report": "Finishing the report", "supabase_paste": "Checking who can read your database"}
+STATUS_EN = {"pending": "queued", "running": "in progress", "ok": "done", "skipped": "skipped", "error": "could not run"}
 
 
 def status_payload(job: Dict[str, Any]) -> Dict[str, Any]:
@@ -117,7 +151,8 @@ def status_payload(job: Dict[str, Any]) -> Dict[str, Any]:
     order = list(steps.keys())
     done = [k for k in order if steps[k]["status"] in ("ok", "skipped", "error")]
     total = max(1, len(order))
-    status = {"queued": "running", "running": "running", "done": "done", "error": "failed"}.get(job.get("status"), "running")
+    status = {"queued": "running", "running": "running", "done": "done", "error": "failed"}.get(
+        job.get("status"), "running")
     events = []
     for k in order:
         st = steps[k]
@@ -126,16 +161,13 @@ def status_payload(job: Dict[str, Any]) -> Dict[str, Any]:
             m = re.search(r"(\d+) résultat", st.get("message", ""))
             found = m and int(m.group(1)) > 0
             if st["status"] == "ok" and found:
-                text = f"{label}: {m.group(1)} issue(s) found"
-                kind = "alert"
+                events.append({"text": f"{label}: {m.group(1)} issue(s) found", "kind": "alert"})
             else:
-                text = f"{label} — {STATUS_EN.get(st['status'], st['status'])}"
-                kind = "info"
-            events.append({"text": text, "kind": kind})
+                events.append({"text": f"{label} — {STATUS_EN.get(st['status'], st['status'])}", "kind": "info"})
     return {
         "status": status,
         "progress": int(100 * len(done) / total),
-        "eta_seconds": 0 if status == "done" else max(5, (total - len(done)) * 15),
+        "eta_seconds": 0 if status == "done" else max(5, (total - len(done)) * 12),
         "events": events or [{"text": "Starting the audit...", "kind": "info"}],
         "message": job.get("message", ""),
     }

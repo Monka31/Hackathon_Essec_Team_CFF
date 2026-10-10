@@ -1,31 +1,52 @@
-"""Plateforme web : sert le prototype (interface) et l'API qu'il attend.
+"""Plateforme web Syberia : sert le visuel (prototype.html) et l'API qu'il attend.
 
 Lancer : python -m vibeaudit serve            (puis http://127.0.0.1:8000)
+Sécurité : jetons GitHub jamais stockés, cookies de session httpOnly, le code audité
+n'est jamais exécuté, aucune attaque active.
 """
 from __future__ import annotations
 
+import io
 import json
 import os
+import secrets
+import tempfile
+import zipfile
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
 from .. import __version__
 from ..config import load_env
 from ..core.net import UnsafeURL, check_public_url, parse_github_url
 
 load_env()
-from . import adapter  # noqa: E402
+from . import adapter, db, fixes, github_app  # noqa: E402
 from .jobs import STORE, audit_log  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 app = FastAPI(title="vibeaudit", version=__version__, docs_url=None, redoc_url=None)
+db.init()
+
+MAX_ZIP_MB = int(os.getenv("MAX_ZIP_MB", "50"))
+COOKIE = "sid"
+_oauth_states: Dict[str, bool] = {}
 
 
 def _client_ip(request: Request) -> str:
     fwd = request.headers.get("x-forwarded-for", "")
     return fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "?")
+
+
+def _current_user(request: Request) -> Optional[Dict[str, Any]]:
+    return db.user_by_session(request.cookies.get(COOKIE))
+
+
+def _set_session(resp, user: Dict[str, Any]) -> None:
+    token = db.create_session(user["db_id"])
+    resp.set_cookie(COOKIE, token, max_age=db.SESSION_DAYS * 86400, httponly=True, samesite="lax", path="/")
 
 
 @app.middleware("http")
@@ -41,31 +62,81 @@ def index():
     return FileResponse(HERE / "prototype.html", media_type="text/html")
 
 
+# ============================================================ AUDITS
+def _unzip_to_temp(data: bytes) -> str:
+    if len(data) > MAX_ZIP_MB * 1024 * 1024:
+        raise HTTPException(400, f"ZIP too large (max {MAX_ZIP_MB} MB).")
+    dest = Path(tempfile.mkdtemp(prefix="vibeaudit-zip-"))
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            for name in z.namelist():
+                p = (dest / name).resolve()
+                if not str(p).startswith(str(dest.resolve())):
+                    raise HTTPException(400, "Unsafe path in ZIP.")
+            z.extractall(dest)
+    except zipfile.BadZipFile:
+        raise HTTPException(400, "This file is not a valid ZIP.")
+    # si tout est dans un seul dossier racine, on descend dedans
+    entries = [e for e in dest.iterdir() if e.name not in ("__MACOSX",)]
+    if len(entries) == 1 and entries[0].is_dir():
+        return str(entries[0])
+    return str(dest)
+
+
 @app.post("/api/audits")
 async def start_audit(request: Request):
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    repo_url = (body.get("repo_url") or "").strip()
-    app_url = (body.get("url") or "").strip()
-    supabase_advisor = (body.get("supabase_advisor") or "").strip()[:20000]
-    consent = bool(body.get("owner_consent"))
+    user = _current_user(request)
+    user_db_id = user["db_id"] if user else None
+    ctype = request.headers.get("content-type", "")
 
-    if not repo_url and not app_url:
-        raise HTTPException(400, "Provide an app URL, a GitHub repo, or both.")
-    if repo_url and not parse_github_url(repo_url):
-        raise HTTPException(400, "Invalid GitHub URL. Expected https://github.com/owner/project")
+    repo_url = app_url = supabase_advisor = None
+    local_root = None
+    github_token = None
+
+    if ctype.startswith("multipart/form-data"):
+        form = await request.form()
+        up = form.get("file")
+        if up is None:
+            raise HTTPException(400, "No file provided.")
+        local_root = _unzip_to_temp(await up.read())
+    else:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        atype = (body.get("type") or "quick").strip()
+        app_url = (body.get("url") or "").strip() or None
+        repo_url = (body.get("repo_url") or "").strip() or None
+        supabase_advisor = ((body.get("supabase_advisor") or "").strip() or None)
+        if supabase_advisor:
+            supabase_advisor = supabase_advisor[:20000]
+        provider = (body.get("provider") or "").strip()
+        # audit profond via GitHub : il faut un repo (owner/name ou URL)
+        if atype == "deep" and provider == "github" and not repo_url:
+            raise HTTPException(400, "Add your GitHub repository (owner/name) to run a deep audit, or upload a ZIP.")
+
     if app_url:
         try:
             check_public_url(app_url)
         except UnsafeURL as e:
             raise HTTPException(400, f"URL refused: {e}")
-    if not consent:
-        raise HTTPException(400, "You must confirm you own this project or are authorized to test it.")
+    if repo_url:
+        gh = parse_github_url(repo_url) or (repo_url.count("/") == 1 and repo_url)
+        if not gh:
+            raise HTTPException(400, "Invalid GitHub repository. Use owner/name or a github.com URL.")
+        if repo_url.count("/") == 1 and not repo_url.startswith("http"):
+            repo_url = "https://github.com/" + repo_url
+        # jeton d'installation court pour cloner (y compris privé), jamais stocké
+        if github_app.is_configured():
+            parts = [x for x in repo_url.split("/") if x]
+            if len(parts) >= 2:
+                github_token = github_app.token_for_repo(parts[-2], parts[-1].replace(".git", ""))
 
-    job = STORE.create(repo_url or None, app_url or None, None, _client_ip(request), consent=True,
-                       supabase_advisor=supabase_advisor or None)
+    if not (repo_url or app_url or local_root):
+        raise HTTPException(400, "Provide an app URL, a GitHub repo, or a ZIP.")
+
+    job = STORE.create(repo_url, app_url, github_token, _client_ip(request), consent=True,
+                       supabase_advisor=supabase_advisor, user_db_id=user_db_id, local_root=local_root)
     return {"audit_id": job.id}
 
 
@@ -83,51 +154,220 @@ def audit_report(job_id: str):
     if not p:
         raise HTTPException(404, "Report not ready")
     report = json.loads(p.read_text(encoding="utf-8"))
-    return JSONResponse(adapter.to_prototype(report))
+    job = STORE.get(job_id)
+    pid = job.project_id if job else None
+    pname = job.project_name if job else None
+    return JSONResponse(adapter.to_prototype(report, pid, pname))
 
 
-# --- Stubs pour que les écrans du prototype ne cassent pas (pas encore branchés) ---
+# ============================================================ AUTH
+@app.get("/api/auth/github/login")
+def github_login():
+    if not github_app.is_configured():
+        raise HTTPException(503, "GitHub sign-in is not configured on the server.")
+    state = secrets.token_urlsafe(16)
+    _oauth_states[state] = True
+    return RedirectResponse(github_app.oauth_authorize_url(state), status_code=302)
+
+
+@app.get("/api/auth/github/callback")
+def github_callback(code: str = "", state: str = ""):
+    if not _oauth_states.pop(state, False):
+        raise HTTPException(400, "Invalid OAuth state.")
+    token = github_app.exchange_code(code)
+    if not token:
+        raise HTTPException(400, "GitHub sign-in failed.")
+    gh = github_app.get_authenticated_user(token)
+    if not gh or not gh.get("github_id"):
+        raise HTTPException(400, "Could not read your GitHub profile.")
+    user = db.get_or_create_github_user(gh["github_id"], gh["login"], gh["name"], gh.get("email"),
+                                        gh.get("avatar_url"))
+    dest = "/#/app/dashboard" if user["onboarded"] else "/#/onboarding?next=%23%2Fapp%2Fdashboard"
+    resp = RedirectResponse(github_app.base_url() + dest, status_code=302)
+    _set_session(resp, user)
+    audit_log("login", method="github", user=user["db_id"])
+    return resp
+
+
 @app.post("/api/auth/signup")
 async def signup(request: Request):
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    email = body.get("email")
-    name = (email.split("@")[0] if email else "Founder")
-    return {"user": {"id": "u_demo", "name": name, "email": email}}
+    body = await request.json()
+    method = (body.get("method") or "email").strip()
+    if method == "github":
+        return JSONResponse({"redirect": "/api/auth/github/login"})
+    if method == "google":
+        raise HTTPException(501, "Google sign-in arrives in the next version. Use GitHub or email.")
+    email = (body.get("email") or "").strip()
+    if not email or "@" not in email:
+        raise HTTPException(400, "A valid email is required.")
+    user = db.get_or_create_email_user(email)
+    resp = JSONResponse({"user": {"id": user["id"], "name": user["name"], "email": user["email"],
+                                  "onboarded": user["onboarded"]}})
+    _set_session(resp, user)
+    return resp
+
+
+@app.post("/api/auth/login")
+async def login(request: Request):
+    return await signup(request)
+
+
+@app.post("/api/auth/logout")
+def logout(request: Request):
+    db.delete_session(request.cookies.get(COOKIE))
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(COOKIE, path="/")
+    return resp
+
+
+@app.get("/api/me")
+def me(request: Request):
+    user = _current_user(request)
+    if not user:
+        return {"user": None}
+    return {"user": {"id": user["id"], "name": user["name"], "email": user["email"],
+                     "onboarded": user["onboarded"], "login": user["login"],
+                     "avatar_url": user["avatar_url"], "role": user.get("role")}}
+
+
+@app.post("/api/me/onboarding")
+async def onboarding(request: Request):
+    user = _current_user(request)
+    if not user:
+        raise HTTPException(401, "Sign in first.")
+    body = await request.json()
+    db.save_onboarding(user["db_id"], body.get("role", ""), body.get("built_with", ""),
+                       body.get("goal", ""), body.get("concerns") or [])
+    return {"ok": True}
+
+
+# ============================================================ PROJECTS / FINDINGS
+def _humanize(iso: Optional[str]) -> str:
+    return "Today" if iso and iso[:10] == __import__("datetime").date.today().isoformat() else (iso or "")[:10]
+
+
+def _project_shape(a: Dict[str, Any]) -> Dict[str, Any]:
+    repo = ""
+    if a.get("repo_url"):
+        parts = [x for x in a["repo_url"].split("/") if x]
+        repo = "/".join(parts[-2:]) if len(parts) >= 2 else a["repo_url"]
+    elif a.get("app_url"):
+        repo = a["app_url"]
+    return {"id": a["project_id"], "name": a.get("project_name") or a["project_id"], "repo": repo,
+            "provider": "github", "stack": "", "last_scan_at_label": _humanize(a.get("created_at")),
+            "last_scan_ok": a.get("status") == "done", "audit_id": a["id"],
+            "scanned_dependencies": 0, "workflow_issues": 0, "tags": [], "fixes_verified": 0,
+            "commits_since_scan": 0}
 
 
 @app.get("/api/projects")
-def projects():
-    return []
+def projects(request: Request):
+    user = _current_user(request)
+    if not user:
+        return []
+    return [_project_shape(a) for a in db.latest_audit_per_project(user["db_id"])]
 
 
-@app.post("/api/audits/{job_id}/findings/{fid}/fix")
-def create_fix(job_id: str, fid: str):
-    # La correction automatique par PR n'est pas encore branchée : on renvoie la proposition sans l'appliquer.
-    p = STORE.report_json(job_id)
-    steps = []
-    if p:
-        rep = json.loads(p.read_text(encoding="utf-8"))
-        f = next((x for x in rep.get("findings", []) if x["id"] == fid), None)
-        if f:
-            steps = f.get("fix_steps") or []
-    return {
-        "fix_id": f"fx_{job_id}_{fid}", "finding_id": fid, "status": "pr_created",
-        "plain_change": "Suggested fix (preview). Automatic pull requests are coming soon.",
-        "reassurance": "Nothing is changed in your repository yet.",
-        "file": "", "diff": [f"+ {s}" for s in steps] or ["+ (see the fix steps in the report)"],
-        "checks": [], "pr_url": None,
-    }
+def _findings_for_audit(audit: Dict[str, Any]) -> List[Dict[str, Any]]:
+    p = STORE.report_json(audit["id"])
+    if not p:
+        return []
+    report = json.loads(p.read_text(encoding="utf-8"))
+    return adapter.to_prototype(report, audit["project_id"], audit.get("project_name")).get("findings", [])
 
 
-@app.get("/api/fixes/{fix_id}")
-def get_fix(fix_id: str):
-    return {"fix_id": fix_id, "status": "pr_created", "diff": [], "checks": [], "pr_url": None,
-            "plain_change": "Preview only.", "reassurance": "", "file": ""}
+@app.get("/api/findings")
+def findings(request: Request, project: str = "", severity: str = ""):
+    user = _current_user(request)
+    if not user:
+        return []
+    audits = db.latest_audit_per_project(user["db_id"])
+    out: List[Dict[str, Any]] = []
+    for a in audits:
+        if project and a["project_id"] != project:
+            continue
+        if a.get("status") != "done":
+            continue
+        out += _findings_for_audit(a)
+    if severity:
+        out = [f for f in out if f["severity"] == severity]
+    return out
+
+
+@app.post("/api/projects/{project_id}/rescan")
+def rescan(project_id: str, request: Request):
+    user = _current_user(request)
+    if not user:
+        raise HTTPException(401, "Sign in first.")
+    prev = next((a for a in db.latest_audit_per_project(user["db_id"]) if a["project_id"] == project_id), None)
+    if not prev:
+        raise HTTPException(404, "Project not found.")
+    repo_url, app_url = prev.get("repo_url"), prev.get("app_url")
+    github_token = None
+    if repo_url and github_app.is_configured():
+        parts = [x for x in repo_url.split("/") if x]
+        if len(parts) >= 2:
+            github_token = github_app.token_for_repo(parts[-2], parts[-1].replace(".git", ""))
+    job = STORE.create(repo_url, app_url, github_token, _client_ip(request), consent=True,
+                       user_db_id=user["db_id"], project_id=project_id, project_name=prev.get("project_name"))
+    return {"audit_id": job.id}
+
+
+# ============================================================ FIXES
+@app.post("/api/fixes/batches")
+async def create_fix_batch(request: Request):
+    user = _current_user(request)
+    if not user:
+        raise HTTPException(401, "Sign in first.")
+    body = await request.json()
+    project_id = body.get("project_id")
+    ids = body.get("finding_ids") or []
+    bid = fixes.create(user["db_id"], project_id, ids)
+    if not bid:
+        raise HTTPException(404, "No finished audit found for this project.")
+    return {"batch_id": bid}
+
+
+@app.get("/api/fixes/batches/{batch_id}")
+def get_fix_batch(batch_id: str):
+    s = fixes.status(batch_id)
+    if not s:
+        raise HTTPException(404, "Fix batch not found.")
+    return s
+
+
+@app.post("/api/fixes/batches/{batch_id}/deploy")
+async def deploy_fix_batch(batch_id: str, request: Request):
+    user = _current_user(request)
+    if not user:
+        raise HTTPException(401, "Sign in first.")
+    body = await request.json()
+    result = fixes.deploy(batch_id, (body.get("target") or "github").strip())
+    if "error" in result:
+        raise HTTPException(400, result["error"])
+    return result
+
+
+@app.get("/api/fixes/batches/{batch_id}/download")
+def download_fix_batch(batch_id: str):
+    # Le ZIP du projet corrigé arrive dans une prochaine version ; on oriente vers la PR.
+    raise HTTPException(501, "Downloading the fixed project as a ZIP arrives in the next version. "
+                             "Use 'Deploy to GitHub' to open a pull request with the fixes.")
+
+
+# ============================================================ PASSPORTS
+@app.post("/api/passports/{project_id}/share")
+def share_passport(project_id: str, request: Request):
+    user = _current_user(request)
+    if not user:
+        raise HTTPException(401, "Sign in first.")
+    a = next((x for x in db.latest_audit_per_project(user["db_id"]) if x["project_id"] == project_id), None)
+    if not a:
+        raise HTTPException(404, "Project not found.")
+    url = f"{github_app.base_url()}/#/report/{a['id']}?view=founder"
+    return {"url": url}
 
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": __version__}
+    return {"ok": True, "version": __version__, "github_app": github_app.is_configured()}

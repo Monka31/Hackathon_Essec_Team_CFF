@@ -3,270 +3,238 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>[PRODUCT NAME] · Security audit for vibe-coded apps</title>
+<title>Syberia · Security audit for vibe-coded apps</title>
 <!--
 ================================================================================
- HANDOFF NOTES FOR MARCO
+ SYBERIA · HANDOFF NOTES FOR MARCO  (v2, premium design)
 ================================================================================
- One file, no build step. Open it in a browser: everything works on mock data.
+ One file, no build step. Open it in a browser: the whole flow works on mock data.
 
- HOW IT IS ORGANISED (search for these markers):
+ WHAT CHANGED SINCE v1
+   - New design (liquid glass, white/grey + green/lime, Fraunces + Figtree)
+   - Home and report pages have no menu bar (focus on the audit)
+   - Score explanation panel ("?" next to the score)
+   - Onboarding questionnaire (4 steps) after sign-up   -> POST /me/onboarding
+   - Platform pages: Dashboard, Projects, Findings, Fixes, Passport
+   - Fixes are now a BATCH: select several findings, fix them in one run,
+     then deploy (GitHub PR) or download the fixed project as a ZIP
+
+ HOW IT IS ORGANISED (search for these markers)
    [CONFIG]   USE_MOCK switch + API base URL
-   [CONTRACT] Exact JSON shapes the frontend expects from the backend
-   [API]      The only place that talks to the backend. Each function has
-              its REST endpoint in a comment + a mock implementation.
-              To go live: set USE_MOCK = false and make the endpoints return
-              the shapes in [CONTRACT]. No UI code needs to change.
+   [CONTRACT] Exact JSON shapes the frontend expects. Keep field names.
+   [API]      The only place that talks to the backend (REST endpoint in a
+              comment above each function + a mock implementation).
+              To go live: USE_MOCK = false, make endpoints return [CONTRACT].
    [SCORE]    Score rule (100 - 25/critical - 10/high - 3/medium, open only).
-              Move it server-side later if you prefer; keep the same rule.
    [SCREENS]  One render function per screen.
 
- ROUTES (hash based):
-   #/                         Start screen (quick audit from URL)
-   #/deep                     Deep audit (ZIP or Git provider)
-   #/scan/:auditId            Loading screen, polls audit status
-   #/report/:auditId?view=    Report, view = founder | dev
-   #/signup?next=...          Account gate (Fix / Download / Open PRs)
-   #/app/dashboard            Logged-in platform
-   #/app/fix/:auditId/:findingId
-   #/app/passport/:auditId
-
- LOADING SCREEN: the sentences come from the backend as `events` in the
- status response. Send one event per meaningful step ("Checking who can read
- your database"), kind "alert" when something is found. The UI shows the
- latest one large and fades the older ones.
+ ROUTES (hash based)
+   #/                                Home (quick audit from URL)
+   #/deep                            Deep audit (ZIP or Git provider)
+   #/scan/:auditId                   Loading screen, polls audit status
+   #/report/:auditId?view=           Public report, view = founder | dev
+   #/signup?next=                    Account gate
+   #/onboarding?next=                4-step questionnaire after sign-up
+   #/app/dashboard                   Platform home
+   #/app/projects
+   #/app/findings?project=&sev=
+   #/app/fixes/:projectId?select=F1,F2
+   #/app/passport/:projectId
 ================================================================================
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Fraunces:opsz,wght@9..144,300..500&display=swap" rel="stylesheet">
 <style>
 :root{
-  --ink:#1B1B19; --ink-2:#4A4A47; --muted:#5B5B57; --faint:#8E8D87;
-  --line:#D9D8D2; --line-2:#ECEBE6; --ground:#F4F3EF; --white:#FFFFFF;
-  --crit:#B42318; --crit-bg:#FDECEA; --high:#B54708; --high-bg:#FEF0E6;
-  --med:#7A5C00; --med-bg:#FBF3D9; --ok:#067647; --ok-bg:#E3EFE7; --ok-ink:#0B4A2E;
-  --link:#1F4FD1;
-  --sans:'IBM Plex Sans', system-ui, sans-serif; --mono:'IBM Plex Mono', ui-monospace, monospace;
+  --ink:#16301F; --ink-2:#1F2E25; --text-2:#3B4A41; --muted:#526058; --faint:#5F6E65;
+  --link:#2F6B45; --ground-top:#F3F5F6; --ground-bottom:#E9EEF0;
+  --crit:#B42230; --crit-bg:rgba(255,95,109,.14); --crit-rail:linear-gradient(180deg,#FF5F6D,#FFB25B);
+  --high:#A65200; --high-bg:rgba(255,165,60,.16); --high-rail:linear-gradient(180deg,#FFA53C,#FFD27A);
+  --med:#725C00;  --med-bg:rgba(225,195,40,.2);   --med-rail:linear-gradient(180deg,#E1C328,#F2E38A);
+  --ok:#3C6A0E;
+  --lime:linear-gradient(135deg,#D8F65E,#F5FCCD);
+  --mint:linear-gradient(135deg,rgba(148,203,170,.95),rgba(236,247,218,.95));
+  --green-card:radial-gradient(90% 90% at 100% 0%, rgba(226,249,120,.95) 0%, rgba(226,249,120,0) 58%), linear-gradient(155deg, rgba(214,238,222,.95) 0%, rgba(160,212,180,.9) 100%);
+  --sans:'Figtree',system-ui,sans-serif; --serif:'Fraunces',Georgia,serif; --mono:'Geist Mono',ui-monospace,monospace;
 }
 *{box-sizing:border-box}
-body{margin:0;font-family:var(--sans);color:var(--ink);background:var(--white);-webkit-font-smoothing:antialiased}
-a{color:inherit}
+html,body{margin:0;min-height:100%}
+body{font-family:var(--sans);color:var(--ink);background:linear-gradient(180deg,var(--ground-top),var(--ground-bottom));-webkit-font-smoothing:antialiased}
+a{color:var(--ink)} a:hover{color:var(--link)}
 button,input{font:inherit;color:inherit}
-:focus-visible{outline:3px solid var(--link);outline-offset:2px}
+:focus-visible{outline:2px solid var(--link);outline-offset:3px}
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.serif{font-family:var(--serif);font-weight:400;font-optical-sizing:auto;letter-spacing:-.02em}
+.mono{font-family:var(--mono)}
 
-/* buttons */
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 18px;border-radius:8px;border:1px solid transparent;font-weight:600;font-size:15px;text-decoration:none;cursor:pointer;background:none}
-.btn-dark{background:var(--ink);color:var(--white)}
-.btn-dark:hover{background:#33332F}
-.btn-line{border-color:#B9B8B1;background:var(--white);color:var(--ink)}
-.btn-line:hover{background:#F7F6F2}
-.btn-pill{border-radius:999px}
+/* background light */
+.blobs{position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0}
+.blob{position:absolute;border-radius:50%;filter:blur(90px);opacity:.85;animation:drift 22s ease-in-out infinite alternate}
+@keyframes drift{0%{transform:translate(0,0) scale(1)}100%{transform:translate(40px,-30px) scale(1.1)}}
+#app{position:relative;z-index:1;min-height:100vh}
+
+/* glass */
+.glass{background:linear-gradient(160deg,rgba(255,255,255,.72),rgba(255,255,255,.38));backdrop-filter:blur(30px) saturate(160%);-webkit-backdrop-filter:blur(30px) saturate(160%);border:1px solid rgba(255,255,255,.85);box-shadow:inset 0 1px 0 #fff,inset 0 -1px 0 rgba(22,48,31,.04),0 24px 50px -30px rgba(40,70,50,.35)}
+.glass-soft{background:rgba(255,255,255,.5);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,.8)}
+.lift{transition:transform .6s cubic-bezier(.3,1.5,.5,1),box-shadow .4s ease}
+.lift:hover{transform:translateY(-3px);box-shadow:inset 0 1px 0 #fff,0 32px 60px -30px rgba(40,70,50,.45)}
+
+/* buttons: subtle micro-animation */
+.btn{position:relative;isolation:isolate;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 20px;border-radius:999px;border:1px solid rgba(255,255,255,.85);font-weight:600;font-size:15px;text-decoration:none;cursor:pointer;color:var(--ink);background:rgba(255,255,255,.5);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);transition:transform .45s cubic-bezier(.3,1.6,.5,1),box-shadow .3s ease}
+.btn::after{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;background:linear-gradient(180deg,rgba(255,255,255,.6),rgba(255,255,255,0) 55%);opacity:.5;transition:opacity .35s ease}
+.btn::before{content:"";position:absolute;inset:0;z-index:-2;border-radius:inherit;pointer-events:none;box-shadow:0 0 0 8px rgba(196,238,90,0);transition:box-shadow .6s ease-out}
+.btn:hover{transform:translateY(-1px);color:var(--ink)}
+.btn:hover::after{opacity:1}
+.btn:active{transform:scale(.975);transition-duration:.12s}
+.btn:active::before{box-shadow:0 0 0 0 rgba(196,238,90,.65);transition:0s}
+.btn[disabled]{opacity:.45;cursor:not-allowed;transform:none}
+.btn-lime{background:var(--lime);box-shadow:0 12px 26px -14px rgba(150,200,40,.85),inset 0 1px 0 rgba(255,255,255,.9)}
+.btn-mint{background:var(--mint);box-shadow:0 10px 24px -14px rgba(50,110,70,.6),inset 0 1px 0 rgba(255,255,255,.9)}
 .btn-lg{min-height:56px;padding:0 28px;font-size:17px}
-.btn[disabled]{opacity:.5;cursor:not-allowed}
-.linkbtn{background:none;border:none;padding:0;min-height:44px;font-weight:600;font-size:14px;text-decoration:underline;cursor:pointer}
+.btn-sm{min-height:40px;padding:0 16px;font-size:13px}
+.btn-icon{width:38px;min-height:38px;padding:0;border-radius:50%}
+.linkbtn{background:none;border:none;padding:0;min-height:44px;font-weight:600;font-size:14px;text-decoration:underline;cursor:pointer;color:var(--ink)}
+.orb{display:inline-block;flex:0 0 auto;border-radius:50%;background:radial-gradient(circle at 32% 28%,#fff 0,#F3FFC4 24%,#A9DDB8 62%,#3F8A5D 100%);box-shadow:0 10px 24px -8px rgba(63,138,93,.55),inset 0 -6px 12px rgba(30,90,50,.25)}
+.orb-live{animation:breathe 2.6s ease-in-out infinite}
+@keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
+.flow{background:linear-gradient(90deg,#9FD8B1,#DDF77A,#9FD8B1);background-size:200% 100%;animation:flow 1.8s linear infinite}
+@keyframes flow{0%{background-position:0 0}100%{background-position:-200% 0}}
+.shimmer{background:linear-gradient(90deg,var(--ink) 0%,var(--ink) 36%,#A9C9B2 50%,var(--ink) 64%,var(--ink) 100%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shim 2.4s linear infinite}
+@keyframes shim{0%{background-position:100% 0}100%{background-position:-100% 0}}
+@media (prefers-reduced-motion:reduce){.blob,.orb-live,.flow,.shimmer{animation:none}.shimmer{color:var(--ink);background:none}.btn,.lift,.btn::before{transition:none}}
 
-/* public header */
-.pub-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:16px;padding:24px 48px}
-.logo{font-weight:700;font-size:28px;letter-spacing:.02em;color:var(--ink-2);text-decoration:none}
-.pub-nav{display:flex;flex-wrap:wrap;align-items:center;gap:32px;font-size:17px;font-weight:600}
-.pub-nav a{text-decoration:none;color:var(--ink-2)}
-
-/* start */
-.start{max-width:980px;margin:0 auto;padding:56px 24px 64px;display:flex;flex-direction:column;gap:36px}
-.start h1{margin:0;font-size:clamp(30px,5vw,42px);line-height:1.1;text-align:center}
-.start .sub{margin:0;font-size:18px;color:var(--muted);text-align:center}
-.url-row{display:flex;flex-wrap:wrap;gap:14px}
-.url-row input{flex:999 1 380px;min-width:0;height:64px;padding:0 28px;border:2px solid var(--faint);border-radius:999px;font-size:18px}
-.url-row .btn{flex:1 1 240px;height:64px;border-radius:999px;font-size:18px;font-weight:700;background:var(--ink-2);color:#fff}
-.consent{display:flex;gap:10px;align-items:flex-start;padding:0 12px;font-size:14px;color:var(--muted);line-height:1.45}
-.consent input{width:20px;height:20px;margin:1px 0 0;flex:0 0 auto}
-.err{color:var(--crit);font-size:14px;padding:0 12px;min-height:20px}
-.modes{display:flex;flex-wrap:wrap;gap:16px}
-.mode{flex:1 1 300px;border:1px solid #C9C8C2;border-radius:16px;padding:24px;display:flex;flex-direction:column;gap:12px}
-.mode.primary{border:2px solid var(--ink-2)}
-.mode.alt{background:#F7F7F5}
-.mode-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
-.mode-head strong{font-size:20px}
-.tag{padding:4px 12px;border-radius:999px;background:#EDEDEA;font-size:14px;font-weight:600}
-.mode p{margin:0;font-size:15px;line-height:1.5;color:var(--muted)}
-.mode ul{margin:0;padding-left:18px;font-size:15px;line-height:1.7}
-
-/* modal pages */
-.dim{min-height:100vh;background:#8C8B86;display:flex;justify-content:center;padding:56px 20px}
-.dialog{width:100%;max-width:600px;background:#fff;border-radius:24px;padding:32px;display:flex;flex-direction:column;gap:20px;align-self:flex-start}
-.dialog-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
-.dialog h1{margin:0;font-size:28px;line-height:1.2}
-.dialog .lead{margin:6px 0 0;font-size:15px;color:var(--muted);line-height:1.5}
-.close{display:flex;align-items:center;justify-content:center;flex:0 0 44px;height:44px;border-radius:999px;text-decoration:none;font-size:24px;color:var(--muted)}
-.drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:190px;border:2px dashed #A8A7A1;border-radius:18px;background:#F2F2EF;cursor:pointer;padding:24px;text-align:center}
-.drop.over{background:#E8E7E2;border-color:var(--ink)}
-.drop strong{font-size:17px}
-.drop span{font-size:14px;color:var(--muted)}
-.or{display:flex;align-items:center;gap:12px;font-size:14px;color:var(--muted)}
-.or::before,.or::after{content:"";flex:1 1 auto;height:1px;background:#E2E1DC}
-.stack{display:flex;flex-direction:column;gap:10px}
-.field{display:flex;flex-direction:column;gap:6px}
-.field label{font-size:14px;font-weight:600}
-.field input{height:48px;padding:0 18px;border:1px solid #C9C8C2;border-radius:999px;font-size:15px}
-.small{font-size:13px;color:var(--muted);line-height:1.5}
-.benefits{margin:0;padding:16px 18px 16px 36px;background:var(--ground);border-radius:14px;font-size:15px;line-height:1.8}
-
-/* scan */
-.scan{max-width:720px;margin:0 auto;padding:96px 24px 64px;display:flex;flex-direction:column;gap:40px}
-.now{display:flex;align-items:flex-start;gap:16px}
-.now p{margin:0;font-size:clamp(22px,3.5vw,30px);line-height:1.3;font-weight:600}
-.shimmer{background:linear-gradient(90deg,var(--ink) 0%,var(--ink) 38%,#C9C8C2 50%,var(--ink) 62%,var(--ink) 100%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 2.2s linear infinite}
-.pulse{animation:pulse 1.4s ease-in-out infinite;flex:0 0 auto;margin-top:4px}
-@keyframes shimmer{0%{background-position:100% 0}100%{background-position:-100% 0}}
-@keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(.82);opacity:.55}}
-.bar{height:6px;background:#EFEEEA;border-radius:999px;overflow:hidden}
-.bar>div{height:100%;background:var(--ink);width:0;transition:width .4s linear}
-.bar-meta{display:flex;justify-content:space-between;font-size:14px;color:var(--faint);margin-top:10px}
-.history{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:12px}
-.history li{font-size:16px;line-height:1.4;color:var(--ink-2)}
-.history li.alert{color:#7A1A12}
-.history .mk{display:inline-flex;width:22px;justify-content:center;margin-right:10px;font-weight:700;color:var(--ok)}
-.history li.alert .mk{color:var(--crit)}
-@media (prefers-reduced-motion:reduce){.shimmer{animation:none;color:var(--ink);background:none}.pulse{animation:none}.bar>div{transition:none}}
-
-/* report */
-.page{background:var(--ground);min-height:100vh}
-.app-top{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:16px;padding:18px 32px;border-bottom:1px solid var(--line);background:#fff}
-.app-top .meta{font-family:var(--mono);font-size:14px;color:var(--muted)}
-.wrap{max-width:980px;margin:0 auto;padding:32px 24px 56px;display:flex;flex-direction:column;gap:24px}
-.wrap.wide{max-width:1240px}
-.switch-row{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px}
-.seg{display:flex;gap:4px;padding:4px;background:#E8E7E2;border-radius:999px}
-.seg a{display:flex;align-items:center;min-height:44px;padding:0 20px;border-radius:999px;text-decoration:none;font-size:15px;font-weight:600;color:var(--ink-2)}
-.seg a[aria-current="page"]{background:#fff;color:var(--ink);font-weight:700}
-.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:24px}
-.score-card{display:flex;flex-wrap:wrap;gap:28px;align-items:center}
-.score-card .body{flex:1 1 360px;display:flex;flex-direction:column;gap:12px}
-.verdict{margin:0;font-size:14px;font-weight:600}
-.score-card h1{margin:0;font-size:28px;line-height:1.25}
-.chips{display:flex;flex-wrap:wrap;gap:8px}
-.chip{padding:4px 10px;border-radius:999px;font-size:13px;font-weight:600}
+/* common bits */
+.brand{display:flex;align-items:center;gap:12px;font-weight:600;font-size:20px;text-decoration:none;color:var(--ink)}
+.top-center{display:flex;justify-content:center;padding:32px 24px 0}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;font-size:12px;font-weight:600}
 .sev-critical{background:var(--crit-bg);color:var(--crit)}
 .sev-high{background:var(--high-bg);color:var(--high)}
 .sev-medium{background:var(--med-bg);color:var(--med)}
-.sev-fixed{background:var(--ok-bg);color:var(--ok-ink)}
-.actions{display:flex;flex-wrap:wrap;gap:10px}
-.sec-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px}
-.sec-head h2{margin:0;font-size:20px}
-.sec-head span{font-size:14px;color:var(--muted)}
-.finding{background:#fff;border:1px solid var(--line);border-radius:12px;padding:22px 24px;display:flex;flex-direction:column;gap:12px}
-.finding.done{opacity:.7}
+.sev-low{background:rgba(22,48,31,.06);color:var(--text-2)}
+.sev-fixed{background:var(--lime);color:var(--ink)}
+.tag{display:inline-flex;padding:3px 10px;border-radius:999px;font-size:12px;font-family:var(--mono)}
+.muted{color:var(--muted)}
+.err{color:var(--crit);font-size:14px;min-height:20px}
+.card{border-radius:28px;padding:22px}
+.row{display:flex;flex-wrap:wrap;gap:18px;align-items:stretch}
+.stack{display:flex;flex-direction:column;gap:12px}
+.h1{margin:0;font-size:clamp(40px,5vw,56px);line-height:1}
+.h2{margin:0;font-size:18px;font-weight:600}
+.eyebrow{margin:0;font-size:15px;color:var(--faint)}
+.page-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:16px}
+.seg{display:flex;gap:4px;padding:5px;border-radius:999px}
+.seg .btn{min-height:40px;font-size:14px;font-weight:500;border-color:transparent;background:transparent;backdrop-filter:none}
+.seg .btn[aria-pressed="true"],.seg .btn[aria-current="page"]{background:var(--mint);border-color:rgba(255,255,255,.85);font-weight:600}
+.field{display:flex;flex-direction:column;gap:8px}
+.field label{font-size:14px;font-weight:600}
+.input{height:52px;padding:0 20px;border:1px solid rgba(255,255,255,.9);border-radius:999px;background:rgba(255,255,255,.6);font-size:15px}
+.or{display:flex;align-items:center;gap:12px;font-size:14px;color:var(--faint)}
+.or::before,.or::after{content:"";flex:1 1 auto;height:1px;background:rgba(22,48,31,.1)}
+.divider{border-top:1px solid rgba(22,48,31,.07)}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);padding:12px 18px;border-radius:999px;font-size:14px;z-index:20}
+
+/* home */
+.home{max-width:1040px;margin:0 auto;padding:56px 24px 72px;display:flex;flex-direction:column;gap:36px}
+.home h1{margin:0;font-size:clamp(44px,7vw,84px);line-height:.98;text-align:center;max-width:900px;align-self:center}
+.url-bar{border-radius:999px;padding:10px;display:flex;flex-wrap:wrap;gap:10px;max-width:780px;width:100%;margin:0 auto}
+.url-bar input{flex:999 1 280px;min-width:0;height:60px;padding:0 26px;border:none;border-radius:999px;background:rgba(255,255,255,.65);font-size:18px}
+.url-bar .btn{flex:1 1 220px;height:60px}
+.mode{flex:1 1 320px;border-radius:32px;padding:30px;display:flex;flex-direction:column;gap:16px}
+.mode-green{background:var(--green-card);box-shadow:0 30px 60px -30px rgba(60,120,70,.4),inset 0 1px 0 rgba(255,255,255,.6)}
+
+/* dialog pages */
+.dialog-wrap{display:flex;justify-content:center;padding:56px 20px 64px}
+.dialog{width:100%;max-width:600px;border-radius:36px;padding:34px;display:flex;flex-direction:column;gap:20px}
+.dialog-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-height:200px;border-radius:28px;border:1.5px dashed rgba(22,48,31,.22);text-align:center;padding:24px;cursor:pointer}
+.drop.over{background:rgba(216,246,94,.25);border-color:var(--link)}
+
+/* scan */
+.scan{max-width:760px;margin:0 auto;padding:48px 24px 64px;display:flex;flex-direction:column;align-items:center;gap:36px}
+.bar{height:12px;border-radius:999px;background:rgba(22,48,31,.07);box-shadow:inset 0 1px 2px rgba(22,48,31,.08);overflow:hidden}
+.bar>div{height:100%;width:0;border-radius:999px;transition:width .4s linear;box-shadow:0 0 14px rgba(150,205,90,.55)}
+.bar.done>div{background:linear-gradient(90deg,#D9FF6E,#9BD52A);animation:none}
+.history{width:100%;margin:0;padding:0 12px;list-style:none;display:flex;flex-direction:column;gap:12px}
+.history li{display:flex;align-items:center;font-size:16px;line-height:1.4;color:#26352C}
+.history li.alert{color:#8A1F24}
+.mk{display:inline-flex;align-items:center;justify-content:center;flex:0 0 24px;height:24px;margin-right:12px;border-radius:50%;font-size:13px;font-weight:700;background:rgba(150,210,50,.22);color:var(--ok)}
+.alert .mk{background:rgba(255,90,95,.16);color:#C42B30}
+
+/* report */
+.wrap{max-width:1000px;margin:0 auto;padding:24px 24px 64px;display:flex;flex-direction:column;gap:24px}
+.wrap.wide{max-width:1240px}
+.score-card{border-radius:36px;padding:32px;display:flex;flex-wrap:wrap;gap:36px;align-items:center}
+.ring{position:relative;flex:0 0 auto}
+.ring .val{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.ring .q{position:absolute;top:4px;right:4px}
+.finding{border-radius:28px;padding:24px 26px;display:flex;gap:20px}
+.rail{flex:0 0 6px;align-self:stretch;border-radius:999px}
+.rail-critical{background:var(--crit-rail)} .rail-high{background:var(--high-rail)} .rail-medium{background:var(--med-rail)} .rail-low{background:rgba(22,48,31,.15)} .rail-fixed{background:linear-gradient(180deg,#D9FF6E,#9BD52A)}
+.f-body{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:10px}
 .f-top{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;align-items:flex-start}
-.f-title{display:flex;flex-direction:column;gap:8px;flex:1 1 420px}
-.f-title h3{margin:0;font-size:19px}
-.cat{font-family:var(--mono);font-size:12px;color:var(--muted)}
-.finding p{margin:0;font-size:16px;line-height:1.5}
-.finding p.who{font-size:15px;color:var(--muted)}
-.tech{background:#F7F6F2;border:1px solid #E4E3DD;border-radius:8px;padding:12px 14px;font-family:var(--mono);font-size:13px;line-height:1.6;overflow-x:auto}
-
-/* dev view */
-.dev-sum{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:16px;padding:18px 22px}
-.dev-sum .nums{display:flex;flex-wrap:wrap;gap:20px;align-items:center;font-size:15px}
-.dev-grid{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
-.filters{flex:1 1 240px;display:flex;flex-direction:column;gap:20px;padding:20px}
-.filters fieldset{margin:0;padding:0;border:none;display:flex;flex-direction:column;gap:8px}
-.filters legend{padding:0;margin-bottom:8px;font-size:13px;font-weight:700;color:var(--muted)}
-.filters label{display:flex;align-items:center;gap:8px;font-size:14px}
-.filters input{width:18px;height:18px;margin:0}
-.filters .count{margin-left:auto;color:var(--muted)}
-.dev-list{flex:999 1 640px;min-width:0;display:flex;flex-direction:column;gap:14px}
-.drow{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex}
-.drow .stripe{flex:0 0 6px}
-.drow .in{flex:1 1 auto;min-width:0;padding:18px 20px;display:flex;flex-direction:column;gap:10px}
-.drow .rule{font-family:var(--mono);font-size:15px;font-weight:500}
-.tags{display:flex;flex-wrap:wrap;gap:8px;font-family:var(--mono);font-size:12px;color:var(--muted)}
-.tags span{padding:2px 8px;border:1px solid #E2E1DC;border-radius:6px}
-.loc{font-family:var(--mono);font-size:14px;color:var(--link)}
-.drow p{margin:0;font-size:14px;line-height:1.5;color:#3D3D3A}
-.code{border:1px solid #E4E3DD;border-radius:8px;overflow-x:auto;font-family:var(--mono);font-size:13px;line-height:1.75;background:#FAFAF7}
+.f-title{display:flex;flex-direction:column;gap:8px;flex:1 1 380px}
+.f-title h3{margin:0;font-size:20px;font-weight:600;line-height:1.3}
+.code{border-radius:16px;overflow-x:auto;font-family:var(--mono);font-size:13px;line-height:1.8;background:rgba(22,48,31,.04);border:1px solid rgba(255,255,255,.7)}
 .code div{white-space:pre;padding:0 14px}
-.code div.hit{background:var(--crit-bg)}
-.code .ln{display:inline-block;width:36px;color:var(--faint);text-align:right;margin-right:14px}
-.proof{font-size:13px;line-height:1.5;padding:8px 12px;border-radius:8px;background:#F2F1EC;color:var(--ink-2)}
-.proof.ok{background:var(--ok-bg);color:var(--ok-ink)}
-.ignored{background:#fff;border:1px dashed #B9B8B1;border-radius:12px;padding:18px 20px;display:flex;flex-direction:column;gap:10px}
+.code div.hit{background:rgba(255,95,109,.14);box-shadow:inset 3px 0 0 #FF5F6D}
+.code .ln{display:inline-block;width:36px;color:#8A90A0;text-align:right;margin-right:14px}
+.proof{font-size:13px;line-height:1.5;padding:8px 12px;border-radius:12px;background:rgba(22,48,31,.05);color:var(--text-2)}
+.proof.ok{background:linear-gradient(135deg,rgba(238,255,158,.8),rgba(200,242,74,.6));color:var(--ink)}
+.calc-line{display:flex;justify-content:space-between;gap:12px;padding:10px 14px;border-radius:16px;font-size:15px}
+.filters{flex:1 1 230px;border-radius:28px;padding:22px;display:flex;flex-direction:column;gap:20px}
+.filters fieldset{margin:0;padding:0;border:none;display:flex;flex-direction:column;gap:4px}
+.filters legend{padding:0;margin-bottom:8px;font-size:13px;font-weight:600;color:var(--faint)}
+.filters label{display:flex;align-items:center;gap:10px;min-height:32px;font-size:14px}
+.filters input,.check{width:18px;height:18px;margin:0;accent-color:var(--link)}
 
-/* platform shell */
-.shell{display:flex;flex-wrap:wrap;min-height:100vh;background:var(--ground)}
-.side{flex:1 1 240px;max-width:100%;background:var(--ink);color:#E9E8E2;padding:24px 16px;display:flex;flex-direction:column;gap:28px}
-.side .logo{color:#fff;padding:0 10px}
+/* platform */
+.shell{display:flex;flex-wrap:wrap;align-items:stretch;min-height:100vh}
+.side{flex:1 1 230px;max-width:100%;margin:20px 0 20px 20px;border-radius:28px;padding:22px 14px;display:flex;flex-direction:column;gap:26px;align-self:flex-start;position:sticky;top:20px}
 .side nav{display:flex;flex-direction:column;gap:4px}
-.side nav a{display:flex;justify-content:space-between;align-items:center;min-height:44px;padding:0 12px;border-radius:8px;text-decoration:none;font-size:15px;color:#D6D5CF}
-.side nav a[aria-current="page"]{background:#3A3A37;color:#fff;font-weight:600}
-.side nav .n{font-size:13px;color:#B9B8B1}
-.side-foot{margin-top:auto;display:flex;flex-direction:column;gap:12px;padding:0 10px}
-.plan{background:#2C2C29;border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:6px;font-size:13px;color:#B9B8B1}
-.plan a{color:#fff;font-weight:600;font-size:14px}
-.me{display:flex;align-items:center;gap:10px;font-size:14px}
-.avatar{display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:999px;background:var(--ink-2);font-weight:700;color:#fff}
-.main{flex:999 1 640px;min-width:0;padding:32px 36px 56px;display:flex;flex-direction:column;gap:24px}
-.main-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:16px}
-.main-head h1{margin:0;font-size:30px}
-.main-head p{margin:4px 0 0;font-size:15px;color:var(--muted)}
-.kpis{display:flex;flex-wrap:wrap;gap:14px}
-.kpi{flex:1 1 180px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px;display:flex;flex-direction:column;gap:4px}
-.kpi span{font-size:13px;color:var(--muted)}
-.kpi strong{font-size:30px}
-.two{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
-.two>.grow{flex:999 1 520px;min-width:0}
-.two>.side-col{flex:1 1 300px}
-table{width:100%;border-collapse:collapse;font-size:15px}
-th{text-align:left;color:var(--muted);font-size:13px;font-weight:600;padding:8px 10px}
-td{padding:14px 10px;border-top:1px solid var(--line-2);vertical-align:top}
+.side nav a{display:flex;align-items:center;justify-content:space-between;min-height:44px;padding:0 14px;border-radius:14px;text-decoration:none;font-size:15px;color:var(--text-2);border:1px solid transparent;transition:background .3s ease}
+.side nav a:hover{background:rgba(255,255,255,.5)}
+.side nav a[aria-current="page"]{background:var(--mint);border-color:rgba(255,255,255,.85);color:var(--ink);font-weight:600}
+.side .n{font-size:12px;color:var(--faint)}
+.main{flex:999 1 640px;min-width:0;padding:32px 32px 56px;display:flex;flex-direction:column;gap:22px}
+.kpi{flex:1 1 160px;border-radius:26px;padding:20px;display:flex;flex-direction:column;gap:6px}
+.kpi span{font-size:13px;color:var(--faint)}
+.kpi strong{font-size:48px;line-height:1}
+.action{display:flex;flex-wrap:wrap;align-items:center;gap:14px;padding:14px 4px}
+.action .chip{flex:0 0 76px;justify-content:center}
+.insight{position:relative;overflow:hidden;border-radius:30px;padding:26px;min-height:300px;display:flex;flex-direction:column;gap:12px;background:var(--green-card);box-shadow:0 30px 60px -30px rgba(60,120,70,.4),inset 0 1px 0 rgba(255,255,255,.6)}
 .tbl{overflow-x:auto}
-.tbl table{min-width:560px}
-.pill-score{display:inline-block;min-width:44px;text-align:center;padding:4px 10px;border-radius:999px;font-weight:700}
-.action{border:1px solid var(--line-2);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px}
-.action.urgent{border-color:#F3C7C1;background:#FDF4F3}
-.action strong{font-size:15px}
-.action span{font-size:14px;color:var(--muted)}
-.activity{margin:0;padding:0;list-style:none}
-.activity li{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;padding:12px 0;border-top:1px solid var(--line-2);font-size:15px}
-.activity li span:last-child{color:var(--muted);font-size:14px}
-
-/* fix */
-.timeline{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:16px}
-.timeline li{display:flex;gap:12px;align-items:center;font-size:15px;color:var(--muted)}
-.timeline li.done{color:var(--ink)}
-.timeline li.cur{color:var(--ink);font-weight:600}
-.dot{width:22px;height:22px;border-radius:999px;border:2px solid #9A998F;flex:0 0 auto;display:flex;align-items:center;justify-content:center}
-.timeline li.done .dot{border-color:var(--ok);background:var(--ok)}
-.timeline li.cur .dot{border-color:var(--ink);border-right-color:transparent;animation:spin 1s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-.checks{display:flex;flex-direction:column;gap:10px;font-size:15px}
-.checks div{display:flex;gap:10px;align-items:center}
-.diff div{background:#E8F5EE;color:var(--ok-ink)}
-.verified{display:flex;gap:12px;align-items:center;padding:14px 16px;border-radius:10px;background:var(--ok-bg);color:var(--ok-ink);font-weight:600}
-
-/* passport */
-.passport{display:flex;flex-direction:column;gap:28px;padding:40px}
-.pp-head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:20px;align-items:flex-start;border-bottom:1px solid var(--line-2);padding-bottom:24px}
-.pp-head h1{margin:6px 0;font-size:36px}
-.box{flex:1 1 160px;background:#F7F6F2;border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:4px}
-.box span{font-size:13px;color:var(--muted)}
-.box strong{font-size:24px}
-.disclaimer{margin:0;padding-top:20px;border-top:1px solid var(--line-2);font-size:13px;line-height:1.55;color:var(--muted)}
-.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 18px;border-radius:10px;font-size:14px;z-index:10}
-
-@media (max-width:640px){
-  .pub-head{padding:20px}
-  .main{padding:24px 18px 40px}
-  .passport{padding:24px}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th{text-align:left;font-size:13px;color:var(--faint);font-weight:500;padding:10px 8px;white-space:nowrap}
+td{padding:14px 8px;border-top:1px solid rgba(22,48,31,.07);vertical-align:middle}
+td.num,th.num{text-align:right}
+.num a{text-decoration:none;font-weight:500;color:var(--link)}
+.num a.zero{color:#8A968E}
+.pill-score{display:inline-flex;align-items:center;justify-content:center;min-width:40px;height:30px;padding:0 8px;border-radius:999px;font-family:var(--serif);font-size:17px}
+.status-dot{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;font-size:11px;font-weight:700}
+.fix-row{display:flex;flex-wrap:wrap;gap:16px;align-items:center;padding:16px 18px;border-radius:22px}
+.fix-row.dim{opacity:.45}
+.prog{flex:0 1 300px;min-width:200px;display:flex;flex-direction:column;gap:8px}
+.prog .bar{height:10px}
+.deploy{flex:1 1 280px;border-radius:28px;padding:24px;display:flex;flex-direction:column;gap:12px}
+.opt{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:4px;min-height:88px;padding:18px 22px;text-align:left;border-radius:24px;cursor:pointer;color:var(--ink);background:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.85);box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 14px 30px -24px rgba(28,36,80,.4)}
+.opt[aria-pressed="true"]{background:linear-gradient(135deg,rgba(238,255,158,.95),rgba(200,242,74,.85));box-shadow:0 16px 34px -18px rgba(140,190,30,.9),inset 0 1px 0 rgba(255,255,255,.9)}
+.opts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+@media (max-width:760px){
+  .opts{grid-template-columns:1fr}
+  .side{margin:12px;position:static}
+  .main{padding:20px 16px 40px}
+  .score-card,.dialog{padding:24px}
 }
-  .levels{margin-top:4px}
-  .lvlseg{display:inline-flex;gap:4px;padding:4px;background:#E8E7E2;border-radius:999px;margin-bottom:10px}
-  .lvlseg a{cursor:pointer;min-height:34px;padding:0 14px;display:flex;align-items:center;border-radius:999px;font-size:13px;font-weight:600;color:var(--ink-2);text-decoration:none}
-  .lvlseg a[aria-current="page"]{background:#fff;color:var(--ink)}
-  .lvltext{margin:0;font-size:16px;line-height:1.55}
+@media print{.blobs,.side,.no-print{display:none!important}.glass{box-shadow:none;backdrop-filter:none}}
 </style>
 </head>
 <body>
+<div class="blobs" aria-hidden="true">
+  <div class="blob" style="width:560px;height:560px;left:-140px;top:-180px;background:#CDEBD7"></div>
+  <div class="blob" style="width:480px;height:480px;right:-120px;top:140px;background:#DCE4EA;animation-delay:-6s"></div>
+  <div class="blob" style="width:460px;height:460px;left:32%;bottom:-200px;background:#EDF9B4;animation-delay:-10s"></div>
+  <div class="blob" style="width:320px;height:320px;right:16%;bottom:8%;background:#BFE5CC;opacity:.6;animation-delay:-3s"></div>
+</div>
 <div id="app"></div>
 
 <script>
@@ -274,820 +242,929 @@ td{padding:14px 10px;border-top:1px solid var(--line-2);vertical-align:top}
    [CONFIG]
 ============================================================================= */
 const CONFIG = {
-  USE_MOCK: false,         // live backend
+  USE_MOCK: false,         // backend branché (vibeaudit)
   API_BASE: '/api',        // e.g. 'http://localhost:8000/api'
-  POLL_MS: 900,            // how often the scan / fix screens poll
-  MAX_ZIP_MB: 50           // [X] MB on the deep audit screen
+  POLL_MS: 900,            // polling interval for scan and fix screens
+  MAX_ZIP_MB: 50
 };
 
 /* =============================================================================
    [CONTRACT]  Shapes the frontend expects. Keep field names identical.
 
-   POST /audits  -> { audit_id: "a_123" }
-     body (quick): { type: "quick", url: "https://..." }
-     body (deep) : multipart { type: "deep", file: <zip> }  OR  { type: "deep", provider: "github" }
+   POST /audits -> { audit_id }
+     quick: { type: "quick", url }
+     deep : multipart { type: "deep", file: <zip> }  OR  { type: "deep", provider: "github", email? }
 
    GET /audits/:id/status -> {
-     status: "running" | "done" | "failed",
-     progress: 0-100,
-     eta_seconds: 42,
+     status: "running" | "done" | "failed", progress: 0-100, eta_seconds,
      events: [ { text: "Checking who can read your database", kind: "info" | "alert" } ]   // oldest first
    }
 
    GET /audits/:id/report -> {
-     audit_id, project: "our-crm", target: "https://our-crm.lovable.app", type: "quick" | "deep",
-     scanned_at: "ISO date", commit: "abc1234" | null,
-     findings: [ Finding ],
-     ignored:  [ { rule_id, location, reason } ]          // AI-triage false positives
+     audit_id, project_id: "our-crm", project, target, type: "quick" | "deep", scanned_at, commit | null,
+     findings: [ Finding ], ignored: [ { rule_id, location, reason } ]
    }
    Finding = {
-     id: "F1", severity: "critical" | "high" | "medium" | "low",
-     title, impact, who_can_exploit,                       // founder-language fields
-     rule_id, category, owasp, cwe, layer, confidence,     // developer fields
-     file, line, technical_detail, summary,
-     code: [ { n: 12, text: "create table ...", hit: true } ],
-     proof: { confirmed: true, text: "..." },
-     fix_status: "open" | "pr_created" | "merged" | "retesting" | "verified",
-     pr_url: null
+     id, project_id, severity: "critical" | "high" | "medium" | "low",
+     group: "code" | "supply_chain" | "workflow",                 // drives the Projects table columns
+     title, impact, who_can_exploit,                               // founder language
+     rule_id, category, owasp, cwe, layer, confidence, file, line, technical_detail, summary,
+     code: [ { n, text, hit? } ], proof: { confirmed, text },
+     fix_status: "open" | "fixing" | "verified", found_at
    }
 
-   POST /audits/:id/findings/:fid/fix -> Fix
-   GET  /fixes/:fixId                -> Fix
-   Fix = {
-     fix_id, finding_id, status: "pr_created" | "merged" | "retesting" | "verified" | "failed",
-     plain_change: "We lock the contacts table...", reassurance: "Nothing changes for your users...",
-     file: "supabase/migrations/002_fix_contacts.sql",
-     diff: [ "+ alter table contacts enable row level security;" ],
-     checks: [ { label: "The app builds and starts", passed: true } ],
-     pr_url: "https://github.com/..."
-   }
+   POST /auth/signup { method: "github" | "google" | "email", email?, password? } -> { user: { id, name, email, onboarded } }
+   POST /auth/login  { ... }                                       -> { user }
+   POST /me/onboarding { role, built_with, goal, concerns: [] }   -> { ok: true }
+     role: founder | dev | agency | other   (dev => developer view by default)
 
-   POST /auth/signup  { method: "github" | "google" | "email", email?, password? } -> { user: { id, name, email } }
-   GET  /projects -> [ { id, name, stack, score, counts: {critical,high,medium,low}, last_audit, status, audit_id } ]
+   GET /projects -> [ Project ]
+   Project = { id, name, repo, provider: "github", stack, last_scan_at_label, last_scan_ok, audit_id,
+               scanned_dependencies, workflow_issues, tags: [], fixes_verified, commits_since_scan }
+   (score and finding counts are computed in the UI from /findings, see [SCORE])
+
+   GET /findings?project=&severity= -> [ Finding ]                 // all projects of the user
+   POST /projects/:id/rescan -> { audit_id }
+
+   POST /fixes/batches { project_id, finding_ids: [] } -> { batch_id }
+   GET  /fixes/batches/:id -> {
+     status: "running" | "done" | "failed",
+     items: [ { finding_id, progress: 0-100, stage: "writing" | "checking" | "attacking" | "verifying" | "verified" | "failed" } ]
+   }
+   POST /fixes/batches/:id/deploy { target: "github" | "gitlab" | "bitbucket" | "vercel" } -> { pr_url }
+   GET  /fixes/batches/:id/download -> application/zip  (the whole project with every fix applied)
+
+   POST /passports/:projectId/share -> { url }                      // public read-only link
+   GET  /passports/:projectId/pdf   -> application/pdf
 ============================================================================= */
 
 /* =============================================================================
    [SCORE]
 ============================================================================= */
 const WEIGHTS = { critical: 25, high: 10, medium: 3, low: 0 };
-function openFindings(report) { return report.findings.filter(f => f.fix_status !== 'verified'); }
-function computeScore(report) {
-  const lost = openFindings(report).reduce((s, f) => s + (WEIGHTS[f.severity] || 0), 0);
-  return Math.max(0, 100 - lost);
+const SEV_ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
+const SEV_LABEL = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' };
+const isOpen = f => f.fix_status !== 'verified';
+function computeScore(findings) {
+  return Math.max(0, 100 - findings.filter(isOpen).reduce((s, f) => s + (WEIGHTS[f.severity] || 0), 0));
+}
+function initialScore(findings) {
+  return Math.max(0, 100 - findings.reduce((s, f) => s + (WEIGHTS[f.severity] || 0), 0));
 }
 function counts(list) {
   const c = { critical: 0, high: 0, medium: 0, low: 0 };
-  list.forEach(f => { c[f.severity] = (c[f.severity] || 0) + 1; });
+  list.forEach(f => { c[f.severity]++; });
   return c;
+}
+function verdict(score) {
+  return score >= 80 ? { label: 'Ready to share', tone: 'ok' } : score >= 60 ? { label: 'Almost there', tone: 'high' } : { label: 'Not ready to sell', tone: 'crit' };
 }
 
 /* =============================================================================
-   MOCK DATA (our own vibe-coded CRM). Replace with real scan output.
+   MOCK DATA  (our own vibe-coded CRM + two example projects)
 ============================================================================= */
-const MOCK_REPORT = {
-  audit_id: 'demo',
-  project: 'our-crm',
-  target: 'https://our-crm.lovable.app',
-  type: 'quick',
-  scanned_at: new Date().toISOString(),
-  commit: null,
+const today = new Date().toISOString();
+function F(o) { return Object.assign({ fix_status: 'open', found_at: 'Today', code: [], confidence: 'high' }, o); }
+const MOCK = {
   findings: [
-    { id: 'F1', severity: 'critical', title: 'Your customer table is readable by anyone',
+    F({ id: 'F1', project_id: 'our-crm', severity: 'critical', group: 'code', title: 'Your customer table is readable by anyone',
       impact: 'Anyone on the internet can download every contact in your CRM: names, emails and phone numbers.',
       who_can_exploit: 'Anyone who has your app URL. No login needed.',
-      rule_id: 'supabase-rls-disabled', category: 'Broken access control', owasp: 'OWASP A01', cwe: 'CWE-284', layer: 'database', confidence: 'high',
+      rule_id: 'supabase-rls-disabled', category: 'Broken access control', owasp: 'A01', cwe: 'CWE-284', layer: 'database',
       file: 'supabase/migrations/001_init.sql', line: 12, technical_detail: 'Supabase table "contacts": row level security is disabled',
       summary: 'Table public.contacts is exposed through the Supabase REST API with row level security disabled. Any client holding the anon key can read and write every row.',
-      code: [ { n: 11, text: '-- contacts' }, { n: 12, text: 'create table public.contacts (', hit: true }, { n: 13, text: '  id uuid primary key default gen_random_uuid(),' }, { n: 14, text: '  owner_id uuid references auth.users,' } ],
-      proof: { confirmed: true, text: 'unauthenticated read of /rest/v1/contacts returned rows in the sandbox copy.' },
-      fix_status: 'open', pr_url: null },
-    { id: 'F2', severity: 'critical', title: 'A secret key is visible in your website code',
+      code: [{ n: 11, text: '-- contacts' }, { n: 12, text: 'create table public.contacts (', hit: true }, { n: 13, text: '  id uuid primary key default gen_random_uuid(),' }, { n: 14, text: '  owner_id uuid references auth.users,' }],
+      proof: { confirmed: true, text: 'unauthenticated read of /rest/v1/contacts returned rows in the sandbox copy.' } }),
+    F({ id: 'F2', project_id: 'our-crm', severity: 'critical', group: 'code', title: 'A secret key is visible in your website code',
       impact: 'With this key, someone can read and delete all of your data, bypassing every rule.',
       who_can_exploit: 'Anyone who opens the browser developer tools on your site.',
-      rule_id: 'hardcoded-service-role-key', category: 'Exposed secret', owasp: 'OWASP A07', cwe: 'CWE-798', layer: 'frontend', confidence: 'high',
+      rule_id: 'hardcoded-service-role-key', category: 'Exposed secret', owasp: 'A07', cwe: 'CWE-798', layer: 'frontend',
       file: 'lib/supabaseClient.ts', line: 4, technical_detail: 'Service role key found in client bundle',
-      summary: 'A key with the service_role claim is hardcoded in a module imported by client components, so it ships in the browser bundle. It bypasses all row level security.',
-      code: [ { n: 3, text: "import { createClient } from '@supabase/supabase-js'" }, { n: 4, text: 'const key = "eyJhbGciOi…[redacted]"  // role: service_role', hit: true }, { n: 5, text: 'export const supabase = createClient(url, key)' } ],
-      proof: { confirmed: true, text: 'key found in the public JavaScript bundle; decoded claim role=service_role.' },
-      fix_status: 'open', pr_url: null },
-    { id: 'F3', severity: 'high', title: 'Your export page works without logging in',
-      impact: 'The "export contacts" link downloads a full CSV even for visitors who are not signed in.',
-      who_can_exploit: 'Anyone who guesses or finds the export link.',
-      rule_id: 'nextjs-route-missing-auth', category: 'Missing authentication', owasp: 'OWASP A07', cwe: 'CWE-306', layer: 'backend', confidence: 'high',
+      summary: 'A key with the service_role claim is hardcoded in a module imported by client components, so it ships in the browser bundle.',
+      code: [{ n: 3, text: "import { createClient } from '@supabase/supabase-js'" }, { n: 4, text: 'const key = "eyJhbGciOi…[redacted]"  // role: service_role', hit: true }, { n: 5, text: 'export const supabase = createClient(url, key)' }],
+      proof: { confirmed: true, text: 'key found in the public JavaScript bundle; decoded claim role=service_role.' } }),
+    F({ id: 'F3', project_id: 'our-crm', severity: 'high', group: 'code', title: 'Your export page works without logging in',
+      impact: 'The export link downloads a full CSV even for visitors who are not signed in.',
+      who_can_exploit: 'Anyone who finds the export link.',
+      rule_id: 'nextjs-route-missing-auth', category: 'Missing authentication', owasp: 'A07', cwe: 'CWE-306', layer: 'backend',
       file: 'app/api/export/route.ts', line: 8, technical_detail: 'Route handler has no session check',
       summary: 'GET handler returns all contacts as CSV without checking the session.',
-      code: [ { n: 7, text: 'export async function GET() {' }, { n: 8, text: "  const { data } = await supabase.from('contacts').select('*')", hit: true }, { n: 9, text: '  return new Response(toCsv(data))' } ],
-      proof: { confirmed: true, text: 'request without session cookie returned 200 and a CSV file.' },
-      fix_status: 'open', pr_url: null },
-    { id: 'F4', severity: 'medium', title: 'One package has a known security flaw',
+      code: [{ n: 7, text: 'export async function GET() {' }, { n: 8, text: "  const { data } = await supabase.from('contacts').select('*')", hit: true }, { n: 9, text: '  return new Response(toCsv(data))' }],
+      proof: { confirmed: true, text: 'request without session cookie returned 200 and a CSV file.' } }),
+    F({ id: 'F4', project_id: 'our-crm', severity: 'medium', group: 'supply_chain', title: 'One package has a known security flaw', confidence: 'medium',
       impact: 'An outdated library in your project has a publicly known weakness. Updating it closes the gap.',
       who_can_exploit: 'Attackers using public lists of known flaws.',
-      rule_id: 'vulnerable-dependency', category: 'Vulnerable component', owasp: 'OWASP A06', cwe: '[CVE-ID]', layer: 'supply chain', confidence: 'medium',
+      rule_id: 'vulnerable-dependency', category: 'Vulnerable component', owasp: 'A06', cwe: '[CVE-ID]', layer: 'supply chain',
       file: 'package.json', line: 23, technical_detail: 'Outdated dependency, patched version available',
-      summary: '[package]@[version] has a known vulnerability. Fixed in [version]; reachable code path not confirmed.',
-      code: [], proof: { confirmed: false, text: 'flagged from the public vulnerability database.' },
-      fix_status: 'open', pr_url: null },
-    { id: 'F5', severity: 'medium', title: 'Basic browser protections are missing',
-      impact: 'Your site does not tell browsers to block common tricks like being embedded in a fake page.',
+      summary: '[package]@[version] has a known vulnerability. Fixed in [version].',
+      proof: { confirmed: false, text: 'flagged from the public vulnerability database.' } }),
+    F({ id: 'F5', project_id: 'our-crm', severity: 'medium', group: 'code', title: 'Basic browser protections are missing',
+      impact: 'Your site does not tell browsers to block tricks like being embedded in a fake page.',
       who_can_exploit: 'Phishing sites that copy or frame your app.',
-      rule_id: 'missing-security-headers', category: 'Security misconfiguration', owasp: 'OWASP A05', cwe: 'CWE-693', layer: 'configuration', confidence: 'high',
+      rule_id: 'missing-security-headers', category: 'Security misconfiguration', owasp: 'A05', cwe: 'CWE-693', layer: 'configuration',
       file: 'next.config.js', line: null, technical_detail: 'Missing security headers: CSP, X-Frame-Options',
       summary: 'No Content-Security-Policy or X-Frame-Options header set on responses.',
-      code: [], proof: { confirmed: false, text: 'detected from response headers of the deployed app.' },
-      fix_status: 'open', pr_url: null }
+      proof: { confirmed: false, text: 'detected from response headers of the deployed app.' } }),
+    F({ id: 'C1', project_id: 'client-portal', severity: 'medium', group: 'code', found_at: '9 days ago', title: 'Basic browser protections are missing',
+      impact: 'Browsers are not told to block tricks like fake framed pages.', who_can_exploit: 'Phishing sites that frame your app.',
+      rule_id: 'missing-security-headers', category: 'Security misconfiguration', owasp: 'A05', cwe: 'CWE-693', layer: 'configuration',
+      file: 'firebase.json', line: null, technical_detail: 'Missing security headers', summary: 'No Content-Security-Policy header set.',
+      proof: { confirmed: false, text: 'detected from response headers.' } }),
+    F({ id: 'C2', project_id: 'client-portal', severity: 'medium', group: 'supply_chain', found_at: '9 days ago', title: 'One package has a known security flaw',
+      impact: 'An outdated library has a publicly known weakness.', who_can_exploit: 'Attackers using public lists of known flaws.',
+      rule_id: 'vulnerable-dependency', category: 'Vulnerable component', owasp: 'A06', cwe: '[CVE-ID]', layer: 'supply chain',
+      file: 'package.json', line: 41, technical_detail: 'Outdated dependency', summary: '[package]@[version] has a known vulnerability.',
+      proof: { confirmed: false, text: 'flagged from the public vulnerability database.' } })
+  ].concat([1, 2, 3].map(i => F({ id: 'S' + i, project_id: 'sales-landing', severity: 'medium', group: 'supply_chain', found_at: '3 days ago',
+      title: 'A package has a known security flaw', impact: 'An outdated library has a publicly known weakness.', who_can_exploit: 'Attackers using public lists of known flaws.',
+      rule_id: 'vulnerable-dependency', category: 'Vulnerable component', owasp: 'A06', cwe: '[CVE-ID]', layer: 'supply chain',
+      file: 'package.json', line: 10 + i, technical_detail: 'Outdated dependency', summary: '[package-' + i + ']@[version] has a known vulnerability.',
+      proof: { confirmed: false, text: 'flagged from the public vulnerability database.' } }))),
+  projects: [
+    { id: 'our-crm', name: 'our-crm', repo: 'our-team/our-crm', provider: 'github', stack: 'Next.js · Supabase', last_scan_at_label: 'Today', last_scan_ok: true, audit_id: 'demo', scanned_dependencies: 214, workflow_issues: 0, tags: ['lovable', 'production'], fixes_verified: 0, commits_since_scan: 0 },
+    { id: 'client-portal', name: 'client-portal', repo: 'our-team/client-portal', provider: 'github', stack: 'React · Firebase', last_scan_at_label: '9 days ago', last_scan_ok: false, audit_id: 'cp1', scanned_dependencies: 388, workflow_issues: 0, tags: ['react'], fixes_verified: 4, commits_since_scan: 12 },
+    { id: 'sales-landing', name: 'sales-landing', repo: 'our-team/sales-landing', provider: 'github', stack: 'Next.js', last_scan_at_label: '3 days ago', last_scan_ok: true, audit_id: 'sl1', scanned_dependencies: 96, workflow_issues: 0, tags: ['next.js'], fixes_verified: 0, commits_since_scan: 0 }
   ],
-  ignored: [
-    { rule_id: 'detected-jwt-token', location: 'src/integrations/supabase/client.ts:6',
-      reason: 'This is the Supabase anon key, which is public by design. It only stays safe if row level security is on, which links to the critical finding above.' }
-  ]
+  ignored: [{ rule_id: 'detected-jwt-token', location: 'src/integrations/supabase/client.ts:6', reason: 'This is the Supabase anon key, which is public by design. It only stays safe if row level security is on, which links to the critical finding above.' }],
+  events: [
+    { text: 'Starting the technical audit…', kind: 'info' },
+    { text: 'Mapping your app: Next.js frontend, Supabase database', kind: 'info' },
+    { text: 'Reading the code your website sends to browsers', kind: 'info' },
+    { text: 'Found a secret key with admin rights in the browser code', kind: 'alert' },
+    { text: 'Checking who is allowed to read your database', kind: 'info' },
+    { text: 'Your customer table answers without any login', kind: 'alert' },
+    { text: 'Testing your pages and APIs as an anonymous visitor', kind: 'info' },
+    { text: 'The export page works without signing in', kind: 'alert' },
+    { text: 'Checking browser protection settings', kind: 'info' },
+    { text: 'Comparing what we found with the OWASP Top 10', kind: 'info' },
+    { text: 'Ranking issues by how much damage they could cause', kind: 'info' },
+    { text: 'Writing your report in plain language', kind: 'info' }
+  ],
+  audits: {}, batches: {}
 };
-
-const MOCK_EVENTS = [
-  { text: 'Starting the technical audit…', kind: 'info' },
-  { text: 'Mapping your app: Next.js frontend, Supabase database', kind: 'info' },
-  { text: 'Reading the code your website sends to browsers', kind: 'info' },
-  { text: 'Found a secret key with admin rights in the browser code', kind: 'alert' },
-  { text: 'Checking who is allowed to read your database', kind: 'info' },
-  { text: 'Your customer table answers without any login', kind: 'alert' },
-  { text: 'Testing your pages and APIs as an anonymous visitor', kind: 'info' },
-  { text: 'The export page works without signing in', kind: 'alert' },
-  { text: 'Checking browser protection settings', kind: 'info' },
-  { text: 'Comparing what we found with the OWASP Top 10', kind: 'info' },
-  { text: 'Ranking issues by how much damage they could cause', kind: 'info' },
-  { text: 'Writing your report in plain language', kind: 'info' }
-];
-
-const MOCK_FIXES = {
-  F1: { plain_change: 'We lock the contacts table so each signed-in user only sees the contacts they own. Visitors who are not signed in see nothing.',
-        reassurance: 'Nothing changes for your users: their own contacts keep showing as before.',
-        file: 'supabase/migrations/002_fix_contacts.sql',
-        diff: ['+ alter table contacts enable row level security;', '+ create policy "owner can read" on contacts', '+   for select using (auth.uid() = owner_id);'],
-        checks: ['The app builds and starts', 'Sign-in still works', 'A signed-in user still sees their own contacts'] },
-  F2: { plain_change: 'We remove the admin key from the website code and move the one operation that needed it to the server.',
-        reassurance: 'Your app keeps working. You should also generate a new key in Supabase, because the old one was public.',
-        file: 'lib/supabaseClient.ts',
-        diff: ['- const key = "eyJhbGciOi…[redacted]"', '+ const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY'],
-        checks: ['The app builds and starts', 'No admin key left in the browser code', 'Contacts page still loads'] },
-  F3: { plain_change: 'We make the export page check that the visitor is signed in, and export only their own contacts.',
-        reassurance: 'Signed-in users can still export as before.',
-        file: 'app/api/export/route.ts',
-        diff: ['+ const session = await getSession()', '+ if (!session) return new Response("Unauthorized", { status: 401 })'],
-        checks: ['The app builds and starts', 'Export works when signed in', 'Export is refused when signed out'] }
-};
-function defaultFix(f) {
-  return { plain_change: 'We apply the recommended fix for this issue.', reassurance: 'We check that your app still works before you merge.',
-           file: f.file, diff: ['+ [fix generated by the agent]'], checks: ['The app builds and starts'] };
-}
-
-const MOCK_PROJECTS = [
-  { id: 'p1', name: 'our-crm', stack: 'Next.js · Supabase', audit_id: 'demo', last_audit: 'Today', status: null, live: true },
-  { id: 'p2', name: 'client-portal', stack: 'React · Firebase', score: 76, counts: { critical: 0, high: 0, medium: 2, low: 0 }, last_audit: '9 days ago', status: 'Re-scan advised' },
-  { id: 'p3', name: 'sales-landing', stack: 'Next.js', score: 91, counts: { critical: 0, high: 0, medium: 0, low: 0 }, last_audit: '3 days ago', status: 'Healthy' }
-];
 
 /* =============================================================================
    [API]  Only this block talks to the backend.
 ============================================================================= */
-const mock = { audits: {}, fixes: {} };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-
 async function http(method, path, body, isForm) {
   const res = await fetch(CONFIG.API_BASE + path, {
-    method,
+    method, credentials: 'include',
     headers: isForm ? undefined : { 'Content-Type': 'application/json' },
-    body: body ? (isForm ? body : JSON.stringify(body)) : undefined,
-    credentials: 'include'
+    body: body ? (isForm ? body : JSON.stringify(body)) : undefined
   });
   if (!res.ok) throw new Error((await res.text()) || ('HTTP ' + res.status));
   return res.json();
 }
+const clone = o => JSON.parse(JSON.stringify(o));
 
 const api = {
+  // GET /me  (restaure la session au démarrage)
+  async me() { try { return await http('GET', '/me'); } catch (e) { return { user: null }; } },
   // POST /audits
   async startAudit(payload) {
     if (!CONFIG.USE_MOCK) {
-      if (payload.file) {
-        const fd = new FormData(); fd.append('type', 'deep'); fd.append('file', payload.file);
-        return http('POST', '/audits', fd, true);
-      }
+      if (payload.file) { const fd = new FormData(); fd.append('type', 'deep'); fd.append('file', payload.file); return http('POST', '/audits', fd, true); }
       return http('POST', '/audits', payload);
     }
     await sleep(300);
     const id = 'a_' + Math.random().toString(36).slice(2, 8);
-    mock.audits[id] = { started: Date.now(), duration: payload.type === 'deep' ? 26000 : 14000, type: payload.type, target: payload.url || payload.provider || 'upload.zip' };
+    MOCK.audits[id] = { started: Date.now(), duration: payload.type === 'deep' ? 26000 : 14000, type: payload.type, target: payload.url || payload.provider || 'upload.zip' };
     return { audit_id: id };
   },
-
   // GET /audits/:id/status
   async getAuditStatus(id) {
     if (!CONFIG.USE_MOCK) return http('GET', '/audits/' + id + '/status');
-    const a = mock.audits[id] || (mock.audits[id] = { started: Date.now(), duration: 14000, type: 'quick' });
+    const a = MOCK.audits[id] || (MOCK.audits[id] = { started: Date.now(), duration: 14000, type: 'quick' });
     const t = Math.min(1, (Date.now() - a.started) / a.duration);
-    const shown = Math.max(1, Math.ceil(t * MOCK_EVENTS.length));
-    return {
-      status: t >= 1 ? 'done' : 'running',
-      progress: Math.round(t * 100),
-      eta_seconds: Math.round((1 - t) * a.duration / 1000),
-      events: MOCK_EVENTS.slice(0, shown)
-    };
+    return { status: t >= 1 ? 'done' : 'running', progress: Math.round(t * 100), eta_seconds: Math.round((1 - t) * a.duration / 1000),
+             events: MOCK.events.slice(0, Math.max(1, Math.ceil(t * MOCK.events.length))) };
   },
-
   // GET /audits/:id/report
   async getReport(id) {
     if (!CONFIG.USE_MOCK) return http('GET', '/audits/' + id + '/report');
-    if (!mock.audits[id] || !mock.audits[id].report) {
-      const a = mock.audits[id] || (mock.audits[id] = {});
-      a.report = JSON.parse(JSON.stringify(MOCK_REPORT));
-      a.report.audit_id = id;
-      if (a.type) a.report.type = a.type;
-      if (a.type === 'deep') a.report.commit = 'a1b2c3d';
-    }
-    return mock.audits[id].report;
+    const a = MOCK.audits[id] || {};
+    return { audit_id: id, project_id: 'our-crm', project: 'our-crm', target: a.target || 'https://our-crm.lovable.app', type: a.type || 'quick',
+             scanned_at: today, commit: a.type === 'deep' ? 'a1b2c3d' : null,
+             findings: MOCK.findings.filter(f => f.project_id === 'our-crm'), ignored: MOCK.ignored };
   },
-
-  // POST /audits/:id/findings/:fid/fix
-  async createFix(auditId, findingId) {
-    if (!CONFIG.USE_MOCK) return http('POST', '/audits/' + auditId + '/findings/' + findingId + '/fix');
-    const report = await api.getReport(auditId);
-    const f = report.findings.find(x => x.id === findingId);
-    const base = MOCK_FIXES[findingId] || defaultFix(f);
-    const fixId = 'fx_' + auditId + '_' + findingId;
-    if (!mock.fixes[fixId]) mock.fixes[fixId] = { created: Date.now(), auditId, findingId, base };
-    return api.getFix(fixId);
-  },
-
-  // GET /fixes/:fixId
-  async getFix(fixId) {
-    if (!CONFIG.USE_MOCK) return http('GET', '/fixes/' + fixId);
-    const m = mock.fixes[fixId];
-    const el = Date.now() - m.created;
-    const status = el < 4000 ? 'pr_created' : el < 6000 ? 'merged' : el < 10000 ? 'retesting' : 'verified';
-    const report = await api.getReport(m.auditId);
-    const f = report.findings.find(x => x.id === m.findingId);
-    f.fix_status = status;
-    f.pr_url = 'https://github.com/our-team/our-crm/pull/' + (12 + Number(m.findingId.slice(1)));
-    return {
-      fix_id: fixId, finding_id: m.findingId, status,
-      plain_change: m.base.plain_change, reassurance: m.base.reassurance, file: m.base.file, diff: m.base.diff,
-      checks: m.base.checks.map(label => ({ label, passed: true })),
-      pr_url: f.pr_url
-    };
-  },
-
-  // POST /auth/signup
+  // POST /auth/signup  |  POST /auth/login
   async signup(payload) {
     if (!CONFIG.USE_MOCK) return http('POST', '/auth/signup', payload);
-    await sleep(400);
-    return { user: { id: 'u1', name: payload.email ? payload.email.split('@')[0] : 'Founder', email: payload.email || null } };
+    await sleep(350);
+    return { user: { id: 'u1', name: payload.email ? payload.email.split('@')[0] : 'Founder', email: payload.email || null, onboarded: false } };
   },
-
+  async login(payload) {
+    if (!CONFIG.USE_MOCK) return http('POST', '/auth/login', payload);
+    await sleep(250);
+    return { user: { id: 'u1', name: 'Founder', email: 'founder@startup.com', onboarded: true } };
+  },
+  // POST /me/onboarding
+  async saveOnboarding(answers) {
+    if (!CONFIG.USE_MOCK) return http('POST', '/me/onboarding', answers);
+    await sleep(200); return { ok: true };
+  },
   // GET /projects
   async listProjects() {
     if (!CONFIG.USE_MOCK) return http('GET', '/projects');
-    const auditId = state.lastAuditId || 'demo';
-    const report = await api.getReport(auditId);
-    return MOCK_PROJECTS.map(p => {
-      if (!p.live) return p;
-      const c = counts(openFindings(report));
-      const score = computeScore(report);
-      return Object.assign({}, p, { audit_id: auditId, score, counts: c, status: score >= 80 ? 'Healthy' : 'Action needed' });
+    return clone(MOCK.projects);
+  },
+  // GET /findings?project=&severity=
+  async listFindings(q) {
+    q = q || {};
+    if (!CONFIG.USE_MOCK) return http('GET', '/findings?' + new URLSearchParams(Object.entries(q).filter(([, v]) => v)).toString());
+    return MOCK.findings.filter(f => (!q.project || f.project_id === q.project) && (!q.severity || f.severity === q.severity));
+  },
+  // POST /projects/:id/rescan
+  async rescan(projectId) {
+    if (!CONFIG.USE_MOCK) return http('POST', '/projects/' + projectId + '/rescan');
+    await sleep(300);
+    const p = MOCK.projects.find(x => x.id === projectId);
+    if (p) { p.last_scan_at_label = 'Just now'; p.last_scan_ok = true; p.commits_since_scan = 0; }
+    return { audit_id: 'r_' + projectId };
+  },
+  // POST /fixes/batches
+  async createFixBatch(projectId, ids) {
+    if (!CONFIG.USE_MOCK) return http('POST', '/fixes/batches', { project_id: projectId, finding_ids: ids });
+    const id = 'b_' + Math.random().toString(36).slice(2, 8);
+    MOCK.batches[id] = { started: Date.now(), ids: ids.slice(), projectId };
+    ids.forEach(fid => { const f = MOCK.findings.find(x => x.id === fid); if (f) f.fix_status = 'fixing'; });
+    return { batch_id: id };
+  },
+  // GET /fixes/batches/:id
+  async getFixBatch(id) {
+    if (!CONFIG.USE_MOCK) return http('GET', '/fixes/batches/' + id);
+    const b = MOCK.batches[id], el = Date.now() - b.started;
+    const items = b.ids.map((fid, i) => {
+      const p = Math.max(0, Math.min(100, Math.round(((el - i * 1300) / 5200) * 100)));
+      const stage = p >= 100 ? 'verified' : p >= 85 ? 'verifying' : p >= 55 ? 'attacking' : p >= 25 ? 'checking' : p > 0 ? 'writing' : 'waiting';
+      if (p >= 100) { const f = MOCK.findings.find(x => x.id === fid); if (f && f.fix_status !== 'verified') { f.fix_status = 'verified'; const pr = MOCK.projects.find(x => x.id === f.project_id); if (pr) pr.fixes_verified++; } }
+      return { finding_id: fid, progress: p, stage };
     });
+    return { status: items.every(x => x.progress >= 100) ? 'done' : 'running', items };
+  },
+  // POST /fixes/batches/:id/deploy
+  async deployBatch(id, target) {
+    if (!CONFIG.USE_MOCK) return http('POST', '/fixes/batches/' + id + '/deploy', { target });
+    await sleep(700); return { pr_url: 'https://github.com/our-team/our-crm/pull/18' };
+  },
+  // GET /fixes/batches/:id/download  (returns a URL the browser can open)
+  downloadBatchUrl(id) { return CONFIG.API_BASE + '/fixes/batches/' + id + '/download'; },
+  // POST /passports/:projectId/share
+  async sharePassport(projectId) {
+    if (!CONFIG.USE_MOCK) return http('POST', '/passports/' + projectId + '/share');
+    return { url: location.origin + location.pathname + '#/app/passport/' + projectId };
   }
 };
 
 /* =============================================================================
-   APP STATE + ROUTER
+   STATE + ROUTER
 ============================================================================= */
-const state = {
-  user: null,
-  lastAuditId: null,
-  devView: false,
-  timers: []
-};
+const state = { user: null, prefs: { role: null }, lastAuditId: null, reportView: null, timers: [] };
 function clearTimers() { state.timers.forEach(t => clearInterval(t)); state.timers = []; }
 function go(hash) { if (location.hash === hash) render(); else location.hash = hash; }
 function parseRoute() {
   const raw = location.hash.replace(/^#/, '') || '/';
   const [path, query] = raw.split('?');
-  const params = new URLSearchParams(query || '');
-  return { parts: path.split('/').filter(Boolean), params };
+  return { parts: path.split('/').filter(Boolean), params: new URLSearchParams(query || '') };
 }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function toast(msg) {
-  const t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status'); t.textContent = msg;
+  const t = document.createElement('div'); t.className = 'toast glass'; t.setAttribute('role', 'status'); t.textContent = msg;
   document.body.appendChild(t); setTimeout(() => t.remove(), 2600);
 }
+function requireAccount(next) { if (state.user) go(next); else go('#/signup?next=' + encodeURIComponent(next)); }
 const $app = document.getElementById('app');
 
 async function render() {
-  clearTimers();
-  window.scrollTo(0, 0);
+  clearTimers(); window.scrollTo(0, 0);
   const { parts, params } = parseRoute();
   try {
-    if (parts.length === 0) return screenStart();
+    if (!parts.length) return screenHome();
     if (parts[0] === 'deep') return screenDeep();
     if (parts[0] === 'scan') return screenScan(parts[1]);
     if (parts[0] === 'report') return screenReport(parts[1], params.get('view'));
     if (parts[0] === 'signup') return screenSignup(params.get('next'));
+    if (parts[0] === 'onboarding') return screenOnboarding(params.get('next'));
     if (parts[0] === 'app') {
       if (!state.user) return go('#/signup?next=' + encodeURIComponent(location.hash));
       if (parts[1] === 'dashboard') return screenDashboard();
-      if (parts[1] === 'fix') return screenFix(parts[2], parts[3]);
-      if (parts[1] === 'passport') return screenPassport(parts[2]);
+      if (parts[1] === 'projects') return screenProjects();
+      if (parts[1] === 'findings') return screenFindings(params);
+      if (parts[1] === 'fixes') return screenFixes(parts[2] || 'our-crm', params.get('select'));
+      if (parts[1] === 'passport') return screenPassport(parts[2] || 'our-crm');
     }
-    $app.innerHTML = '<div class="wrap"><h1>Page not found</h1><a class="btn btn-dark" href="#/">Back to start</a></div>';
+    $app.innerHTML = `<div class="wrap"><h1 class="serif h1">Page not found</h1><a class="btn btn-lime" href="#/">Back to the home page</a></div>`;
   } catch (e) {
     console.error(e);
-    $app.innerHTML = '<div class="wrap"><h1>Something failed</h1><p>' + esc(e.message) + '</p><a class="btn btn-dark" href="#/">Back to start</a></div>';
+    $app.innerHTML = `<div class="wrap"><h1 class="serif h1">Something failed</h1><p>${esc(e.message)}</p><a class="btn btn-lime" href="#/">Back to the home page</a></div>`;
   }
 }
 window.addEventListener('hashchange', render);
 
-/* gate: actions that need an account */
-function requireAccount(next) {
-  if (state.user) go(next); else go('#/signup?next=' + encodeURIComponent(next));
-}
-
 /* =============================================================================
    SHARED PIECES
 ============================================================================= */
-const ICON_SHIELD = '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6l8-3z"></path><path d="M12 9v4M12 16v.01"></path></svg>';
-const ICON_GIT = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"></circle><circle cx="6" cy="18" r="2.5"></circle><circle cx="18" cy="9" r="2.5"></circle><path d="M6 8.5v7M18 11.5c0 3-3 3.5-6 4.5"></path></svg>';
-const ICON_CHECK = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#067647" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>';
-
-function pubHeader() {
-  return `<header class="pub-head">
-    <a class="logo" href="#/">LOGO</a>
-    <nav class="pub-nav" aria-label="Main">
-      <a href="#/">Home</a><a href="#/">Pricing</a>
-      ${state.user ? '<a class="btn btn-dark btn-pill" href="#/app/dashboard">Dashboard</a>' : '<a class="btn btn-dark btn-pill" href="#/signup?next=%23%2Fapp%2Fdashboard">Log in</a>'}
-    </nav></header>`;
-}
-
-function ring(score, size) {
-  const r = 54, c = 2 * Math.PI * r, len = (score / 100) * c;
-  const color = score >= 80 ? 'var(--ok)' : score >= 60 ? 'var(--high)' : 'var(--crit)';
-  return `<svg width="${size}" height="${size}" viewBox="0 0 128 128" role="img" aria-label="Security score ${score} out of 100">
-    <circle cx="64" cy="64" r="${r}" fill="none" stroke="#ECEBE6" stroke-width="12"></circle>
-    <circle cx="64" cy="64" r="${r}" fill="none" stroke="${color}" stroke-width="12" stroke-linecap="round" stroke-dasharray="${len.toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 64 64)"></circle>
-    <text x="64" y="66" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="34" font-weight="700" fill="#1B1B19">${score}</text>
-    <text x="64" y="86" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="#5B5B57">out of 100</text></svg>`;
-}
-const SEV_LABEL = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' };
-function sevChip(sev) { return `<span class="chip sev-${sev}">${SEV_LABEL[sev]}</span>`; }
-function countChips(c) {
-  return ['critical', 'high', 'medium', 'low'].filter(k => c[k]).map(k => `<span class="chip sev-${k}">${c[k]} ${k}</span>`).join('');
-}
-function scoreTone(s) { return s >= 80 ? ['var(--ok-bg)', 'var(--ok-ink)'] : s >= 60 ? ['var(--med-bg)', 'var(--med)'] : ['var(--crit-bg)', 'var(--crit)']; }
+const ICON_GIT = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"></circle><circle cx="6" cy="18" r="2.5"></circle><circle cx="18" cy="9" r="2.5"></circle><path d="M6 8.5v7M18 11.5c0 3-3 3.5-6 4.5"></path></svg>';
+const brandCenter = () => `<header class="top-center"><a class="brand" href="${state.user ? '#/app/dashboard' : '#/'}"><span class="orb" style="width:34px;height:34px"></span>Syberia</a></header>`;
+const sevChip = s => `<span class="chip sev-${s}">${SEV_LABEL[s]}</span>`;
+const countChips = c => ['critical', 'high', 'medium', 'low'].filter(k => c[k]).map(k => `<span class="chip sev-${k}">${c[k]} ${k}</span>`).join('');
+const scoreTone = s => s >= 80 ? ['var(--lime)', 'var(--ink)'] : s >= 60 ? ['linear-gradient(135deg,#FFE7A6,#FFC85B)', '#4A3300'] : ['linear-gradient(135deg,#FF8A8F,#FF5F6D)', '#FFFFFF'];
 function fmtDate(iso) { try { return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }); } catch (e) { return iso; } }
-
+function ring(score, size, withInfo) {
+  const r = 54, c = 2 * Math.PI * r, len = (score / 100) * c, id = 'g' + Math.random().toString(36).slice(2, 7);
+  const stops = score >= 80 ? ['#7CD6A0', '#C8F24A'] : score >= 60 ? ['#FFC85B', '#F2E38A'] : ['#FF5F6D', '#FFB25B'];
+  return `<div class="ring" style="width:${size}px;height:${size}px">
+    <svg width="${size}" height="${size}" viewBox="0 0 128 128" aria-hidden="true"><defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${stops[0]}"></stop><stop offset="1" stop-color="${stops[1]}"></stop></linearGradient></defs>
+      <circle cx="64" cy="64" r="${r}" fill="none" stroke="rgba(22,48,31,.07)" stroke-width="10"></circle>
+      <circle cx="64" cy="64" r="${r}" fill="none" stroke="url(#${id})" stroke-width="10" stroke-linecap="round" stroke-dasharray="${len.toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 64 64)"></circle></svg>
+    <div class="val" role="img" aria-label="Security score ${score} out of 100"><span class="serif" style="font-size:${Math.round(size * .38)}px;line-height:.9">${score}</span><span class="muted" style="font-size:13px">out of 100</span></div>
+    ${withInfo ? '<button class="btn btn-icon q" id="scoreQ" type="button" aria-label="How is this score calculated?" aria-expanded="false" aria-controls="scoreInfo">?</button>' : ''}
+  </div>`;
+}
+function scoreExplainer(findings) {
+  const c = counts(findings.filter(isOpen)), score = computeScore(findings);
+  const line = (sev, n, w) => n ? `<div class="calc-line" style="background:var(--${sev === 'critical' ? 'crit' : sev === 'high' ? 'high' : 'med'}-bg)"><span>${n} ${sev} issue${n > 1 ? 's' : ''} × −${w}</span><strong style="color:var(--${sev === 'critical' ? 'crit' : sev === 'high' ? 'high' : 'med'})">−${n * w}</strong></div>` : '';
+  const ifFixed = Math.max(0, 100 - findings.filter(f => isOpen(f) && f.severity === 'medium').length * 3 - findings.filter(f => isOpen(f) && f.severity === 'low').length * 0);
+  return `<div id="scoreInfo" class="glass card stack" role="region" aria-label="How the score is calculated" hidden style="border-radius:26px">
+    <div class="f-top"><h3 class="serif" style="margin:0;font-size:26px">How your score is calculated</h3><button class="btn btn-icon" type="button" id="scoreClose" aria-label="Close">×</button></div>
+    <p style="margin:0;font-size:15px;line-height:1.55;color:var(--text-2)">Every app starts at 100. Each open issue removes points depending on how much damage it could cause. Fixed and verified issues give their points back.</p>
+    <div class="calc-line" style="background:rgba(255,255,255,.55)"><span>Starting score</span><strong>100</strong></div>
+    ${line('critical', c.critical, 25)}${line('high', c.high, 10)}${line('medium', c.medium, 3)}
+    <div class="calc-line" style="background:linear-gradient(135deg,rgba(216,246,94,.5),rgba(245,252,205,.6))"><strong>Your score</strong><strong class="serif" style="font-size:22px">${score}</strong></div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:13px"><span class="glass-soft" style="padding:6px 12px;border-radius:999px">0–59 not ready to sell</span><span class="glass-soft" style="padding:6px 12px;border-radius:999px">60–79 almost there</span><span class="glass-soft" style="padding:6px 12px;border-radius:999px">80–100 ready to share</span></div>
+    ${c.critical || c.high ? `<p class="muted" style="margin:0;font-size:13px">Fixing the critical and high issues brings you to ${ifFixed}. Checks are based on the OWASP Top 10.</p>` : ''}
+  </div>`;
+}
+function bindExplainer() {
+  const q = document.getElementById('scoreQ'), box = document.getElementById('scoreInfo'), x = document.getElementById('scoreClose');
+  if (!q || !box) return;
+  const set = open => { box.hidden = !open; q.setAttribute('aria-expanded', open); if (open) box.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); };
+  q.addEventListener('click', () => set(box.hidden));
+  x.addEventListener('click', () => { set(false); q.focus(); });
+}
 function shell(current, inner) {
-  const items = [
-    ['dashboard', 'Dashboard', '#/app/dashboard'],
-    ['projects', 'Projects', '#/app/dashboard'],
-    ['findings', 'Findings', '#/report/' + (state.lastAuditId || 'demo')],
-    ['fixes', 'Fixes', '#/app/fix/' + (state.lastAuditId || 'demo') + '/F1'],
-    ['passport', 'Reports & passports', '#/app/passport/' + (state.lastAuditId || 'demo')],
-    ['integrations', 'Integrations', '#/app/dashboard'],
-    ['settings', 'Settings', '#/app/dashboard']
-  ];
-  const name = state.user ? state.user.name : '';
+  const items = [['dashboard', 'Dashboard', '#/app/dashboard'], ['projects', 'Projects', '#/app/projects'], ['findings', 'Findings', '#/app/findings'], ['fixes', 'Fixes', '#/app/fixes/our-crm'], ['passport', 'Reports & passports', '#/app/passport/our-crm'], ['integrations', 'Integrations', '#/app/dashboard'], ['settings', 'Settings', '#/app/dashboard']];
   return `<div class="shell">
-    <aside class="side">
-      <a class="logo" href="#/app/dashboard">LOGO</a>
-      <nav aria-label="Platform">${items.map(([k, l, h]) => `<a href="${h}" ${k === current ? 'aria-current="page"' : ''}><span>${l}</span></a>`).join('')}</nav>
-      <div class="side-foot">
-        <div class="plan">Free plan · 1 deep audit left<a href="#/app/dashboard">Upgrade</a></div>
-        <div class="me"><span class="avatar">${esc(name.charAt(0).toUpperCase() || 'U')}</span>${esc(name)}</div>
+    <aside class="side glass">
+      <a class="brand" href="#/app/dashboard" style="padding:0 8px;font-size:18px"><span class="orb" style="width:30px;height:30px"></span>Syberia</a>
+      <nav aria-label="Platform">${items.map(([k, l, h]) => `<a href="${h}" ${k === current ? 'aria-current="page"' : ''}>${l}</a>`).join('')}</nav>
+      <div style="margin-top:auto;display:flex;flex-direction:column;gap:12px">
+        <div class="glass-soft" style="border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:8px"><span class="muted" style="font-size:13px">Free plan · 1 deep audit left</span><button class="btn btn-lime btn-sm" type="button" data-toast="Plans and payment arrive in the next version">Upgrade</button></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:0 8px;font-size:14px"><span class="orb" style="width:32px;height:32px"></span>${esc(state.user ? state.user.name : '')}</div>
       </div>
     </aside>
     <main class="main">${inner}</main></div>`;
 }
+document.addEventListener('click', e => { const t = e.target.closest('[data-toast]'); if (t) toast(t.dataset.toast); });
 
 /* =============================================================================
    [SCREENS]
 ============================================================================= */
 
-const LVLS=[['beginner','Beginner'],['intermediate','Intermediate'],['advanced','Advanced'],['expert','Expert']];
-function levelBlock(f,def){
-  const ex=f.explanations||{}; def=def||'beginner';
-  const txt=ex[def]|| f.impact || f.summary || '';
-  return `<div class="levels" data-fid="${f.id}">
-    <div class="lvlseg" role="tablist">${LVLS.map(([k,l])=>`<a role="tab" data-lvl="${k}" ${k===def?'aria-current=\"page\"':''}>${l}</a>`).join('')}</div>
-    <p class="lvltext">${esc(txt)}</p></div>`;
-}
-function wireLevels(report){
-  document.querySelectorAll('.levels').forEach(box=>{
-    const fid=box.dataset.fid; const f=report.findings.find(x=>x.id===fid); if(!f) return;
-    const out=box.querySelector('.lvltext');
-    box.querySelectorAll('.lvlseg a').forEach(a=>a.addEventListener('click',()=>{
-      box.querySelectorAll('.lvlseg a').forEach(x=>x.removeAttribute('aria-current'));
-      a.setAttribute('aria-current','page');
-      const t=(f.explanations||{})[a.dataset.lvl];
-      out.textContent = t || 'Explanation not available for this level.';
-    }));
-  });
-}
-
-/* 1 · Start (quick audit from URL) */
-function screenStart() {
-  $app.innerHTML = `${pubHeader()}
-  <main class="start">
-    <div style="display:flex;flex-direction:column;gap:12px">
-      <h1>Is your vibe-coded app safe to sell?</h1>
-      <p class="sub">Paste your link. Get a first security check in under 2 minutes.</p>
+/* 1 · Home (no menu bar) */
+function screenHome() {
+  $app.innerHTML = `${brandCenter()}
+  <main class="home">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:18px;text-align:center">
+      <span class="glass-soft" style="display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border-radius:999px;font-size:14px;color:var(--text-2)"><span style="width:8px;height:8px;border-radius:50%;background:#9BD52A;box-shadow:0 0 0 4px rgba(155,213,42,.25)"></span>Built for apps made with Lovable, Bolt and Cursor</span>
+      <h1 class="serif">Is your vibe-coded app safe to sell?</h1>
+      <p style="margin:0;font-size:19px;line-height:1.5;color:var(--muted);max-width:560px">Paste your link. We find the security holes, explain them in plain words, and fix them with you.</p>
     </div>
-    <form id="quick" novalidate style="display:flex;flex-direction:column;gap:14px">
-      <div class="url-row">
+    <form id="quick" novalidate style="display:flex;flex-direction:column;gap:12px">
+      <div class="url-bar glass">
         <label for="url" class="sr-only">Your app URL</label>
-        <input id="url" type="url" placeholder="Your app URL : https://your-app.com" autocomplete="url">
-        <button class="btn" type="submit">Start my free audit</button>
+        <input id="url" type="url" placeholder="https://your-app.com" autocomplete="url">
+        <button class="btn btn-lime" type="submit">Start my free audit</button>
       </div>
-      <input id="repo" type="url" placeholder="GitHub repo (optional) : https://github.com/you/project" autocomplete="off" style="height:52px;padding:0 24px;border:2px solid var(--line);border-radius:999px;font-size:16px">
-      <details style="margin-top:4px">
-        <summary class="small" style="cursor:pointer">Using Supabase? Paste your Security Advisor report (optional)</summary>
-        <textarea id="supabase" placeholder="Supabase dashboard > Advisors > Security Advisor : paste the JSON or the copied text here. We never ask for your token." style="width:100%;min-height:120px;margin-top:8px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;font-family:var(--mono);font-size:13px"></textarea>
-      </details>
-      <div class="consent"><input id="consent" type="checkbox"><label for="consent">I own this app and authorize the audit. We only test apps you can prove you own.</label></div>
-      <div class="err" id="err" role="alert"></div>
+      <label style="display:flex;gap:10px;align-items:center;justify-content:center;font-size:14px;color:var(--muted)"><input id="consent" class="check" type="checkbox">I own this app and authorize the audit</label>
+      <div class="err" id="err" role="alert" style="text-align:center"></div>
     </form>
-    <section class="modes">
-      <div class="mode primary">
-        <div class="mode-head"><strong>Quick audit</strong><span class="tag">1–2 min · free</span></div>
-        <p>From your URL only, nothing to install. We check what anyone on the internet can see.</p>
-        <ul><li>Secret keys visible in your website code</li><li>Database open to the public</li><li>Pages and APIs reachable without login</li><li>Missing browser protections</li></ul>
-        <p class="small">Runs when you click "Start my free audit".</p>
+    <section class="row" style="gap:20px">
+      <div class="mode glass lift">
+        <div class="f-top" style="align-items:center"><h2 style="margin:0;font-size:22px;font-weight:600">Quick audit</h2><span class="chip sev-fixed" style="font-size:13px;padding:6px 14px">1–2 min · free</span></div>
+        <p class="muted" style="margin:0;font-size:15px;line-height:1.5">From your URL only. We check what anyone on the internet can see.</p>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">${['Secret keys in your code', 'Open database', 'Pages without login', 'Browser protections'].map(t => `<span class="glass-soft" style="padding:8px 14px;border-radius:999px;font-size:14px">${t}</span>`).join('')}</div>
       </div>
-      <div class="mode alt">
-        <div class="mode-head"><strong>Deep audit</strong><span class="tag" style="background:#fff;border:1px solid #C9C8C2">about 20 min</span></div>
-        <p>Upload your project as a ZIP or connect your repository. We read every file.</p>
-        <ul><li>Everything in the quick audit</li><li>Full code review, line by line</li><li>Every package and its known flaws</li><li>Fixes ready to apply, then re-tested</li></ul>
-        <a class="btn btn-line btn-pill btn-lg" href="#/deep" style="border-width:2px;border-color:var(--ink-2)">Run a deep audit</a>
+      <div class="mode mode-green lift">
+        <div class="f-top" style="align-items:center"><h2 style="margin:0;font-size:22px;font-weight:600">Deep audit</h2><span class="glass-soft" style="padding:6px 14px;border-radius:999px;font-size:13px;font-weight:600">about 20 min</span></div>
+        <p style="margin:0;font-size:15px;line-height:1.5;color:var(--text-2)">Upload a ZIP or connect GitHub. We read every file, then propose fixes and re-test them.</p>
+        <a class="btn" href="#/deep" style="align-self:flex-start;margin-top:auto">Run a deep audit</a>
       </div>
     </section>
+    <p class="muted" style="margin:0;text-align:center;font-size:14px">Already have an account? <a href="#" id="login" style="font-weight:600">Log in</a></p>
   </main>`;
-  document.getElementById('quick').addEventListener('submit', async (e) => {
+  document.getElementById('quick').addEventListener('submit', async e => {
     e.preventDefault();
-    const url = document.getElementById('url').value.trim();
-    const repo = document.getElementById('repo').value.trim();
-    const err = document.getElementById('err');
-    const urlOk = /^https?:\/\/[^\s.]+\.[^\s]+$/i.test(url);
-    const repoOk = /^https:\/\/github\.com\/[^\s/]+\/[^\s/]+/i.test(repo);
-    if (!urlOk && !repoOk) { err.textContent = 'Enter your app URL, a GitHub repo, or both.'; return; }
-    if (!document.getElementById('consent').checked) { err.textContent = 'Tick the box to confirm you own this project.'; return; }
+    const url = document.getElementById('url').value.trim(), err = document.getElementById('err');
+    if (!/^https?:\/\/[^\s.]+\.[^\s]+$/i.test(url)) { err.textContent = 'Enter the full address of your app, starting with https://'; return; }
+    if (!document.getElementById('consent').checked) { err.textContent = 'Tick the box to confirm you own this app.'; return; }
     err.textContent = '';
     const btn = e.target.querySelector('button'); btn.disabled = true; btn.textContent = 'Starting…';
-    try {
-      const supa = (document.getElementById('supabase') || {}).value || '';
-      const { audit_id } = await api.startAudit({ type: 'quick', url: urlOk ? url : '', repo_url: repoOk ? repo : '', supabase_advisor: supa.trim(), owner_consent: true });
-      state.lastAuditId = audit_id;
-      go('#/scan/' + audit_id);
-    } catch (ex) { err.textContent = 'The audit could not start: ' + ex.message; btn.disabled = false; btn.textContent = 'Start my free audit'; }
+    try { const { audit_id } = await api.startAudit({ type: 'quick', url }); state.lastAuditId = audit_id; go('#/scan/' + audit_id); }
+    catch (ex) { err.textContent = 'The audit could not start: ' + ex.message; btn.disabled = false; btn.textContent = 'Start my free audit'; }
   });
+  document.getElementById('login').addEventListener('click', e => { e.preventDefault(); go('#/signup?next=' + encodeURIComponent('#/app/dashboard')); });
 }
 
 /* 1b · Deep audit */
 function screenDeep() {
-  $app.innerHTML = `<div class="dim"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dt">
-    <div class="dialog-head"><div><h1 id="dt">Deep audit</h1><p class="lead">About 20 minutes. We read every file of your project.</p></div><a class="close" href="#/" aria-label="Close">×</a></div>
-    <label class="drop" id="drop" for="zip">
-      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#1B1B19" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4M7 9l5-5 5 5"></path><path d="M4 15v4a1 1 0 001 1h14a1 1 0 001-1v-4"></path></svg>
-      <strong id="dropTitle">Drop your project here as a .zip</strong>
-      <span>or click to browse · max ${CONFIG.MAX_ZIP_MB} MB · .env files are ignored automatically</span>
-      <input id="zip" class="sr-only" type="file" accept=".zip,application/zip">
-    </label>
+  $app.innerHTML = `<div class="dialog-wrap"><div class="dialog glass" role="dialog" aria-modal="true" aria-labelledby="dt">
+    <div class="dialog-head"><div><h1 id="dt" class="serif" style="margin:0;font-size:46px;line-height:1">Deep audit</h1><p class="muted" style="margin:6px 0 0;font-size:15px">About 20 minutes. We read every file of your project.</p></div><a class="btn btn-icon" href="${state.user ? '#/app/dashboard' : '#/'}" aria-label="Close">×</a></div>
+    <label class="drop glass-soft" id="drop" for="zip"><span class="orb" style="width:54px;height:54px"></span><strong id="dropTitle" style="font-size:17px;font-weight:600">Drop your project here as a .zip</strong><span class="muted" style="font-size:14px">or click to browse · max ${CONFIG.MAX_ZIP_MB} MB · .env files are ignored</span><input id="zip" class="sr-only" type="file" accept=".zip,application/zip"></label>
     <div class="or">or connect your repository</div>
-    <div class="stack">
-      <button class="btn btn-dark btn-pill btn-lg" data-provider="github" type="button">${ICON_GIT}Continue with GitHub</button>
-      <button class="btn btn-line btn-pill btn-lg" data-provider="gitlab" type="button">Continue with GitLab</button>
-      <button class="btn btn-line btn-pill btn-lg" data-provider="bitbucket" type="button">Continue with Bitbucket</button>
+    <div class="stack" style="gap:10px">
+      <button class="btn btn-mint btn-lg" type="button" data-provider="github">${ICON_GIT}Continue with GitHub</button>
+      <div style="display:flex;flex-wrap:wrap;gap:10px"><button class="btn btn-lg" style="flex:1 1 200px;font-weight:500" type="button" data-provider="gitlab">Continue with GitLab</button><button class="btn btn-lg" style="flex:1 1 200px;font-weight:500" type="button" data-provider="bitbucket">Continue with Bitbucket</button></div>
     </div>
-    <div class="field"><label for="mail">Email me when the report is ready</label><input id="mail" type="email" placeholder="you@startup.com"></div>
-    <div class="consent" style="padding:0"><input id="dconsent" type="checkbox"><label for="dconsent">I own this project and authorize the audit.</label></div>
-    <p class="small">Read-only access · analyzed in an isolated copy · deleted after the audit</p>
-    <div class="err" id="derr" role="alert" style="padding:0"></div>
-    <button class="btn btn-pill btn-lg" id="startDeep" type="button" style="background:var(--ink-2);color:#fff">Start the deep audit</button>
+    <div class="field"><label for="mail">Email me when the report is ready</label><input id="mail" class="input" type="email" placeholder="you@startup.com"></div>
+    <label style="display:flex;gap:10px;align-items:center;font-size:14px;color:var(--muted)"><input id="dconsent" class="check" type="checkbox">I own this project and authorize the audit</label>
+    <span class="muted" style="font-size:13px;text-align:center">Read-only access · isolated copy · deleted after the audit</span>
+    <div class="err" id="derr" role="alert"></div>
+    <button class="btn btn-lime btn-lg" id="startDeep" type="button">Start the deep audit</button>
   </div></div>`;
   let file = null, provider = null;
   const drop = document.getElementById('drop'), input = document.getElementById('zip'), title = document.getElementById('dropTitle'), derr = document.getElementById('derr');
-  function setFile(f) {
+  const setFile = f => {
     if (!f) return;
     if (!/\.zip$/i.test(f.name)) { derr.textContent = 'Only .zip files are accepted.'; return; }
-    if (f.size > CONFIG.MAX_ZIP_MB * 1024 * 1024) { derr.textContent = 'This file is over ' + CONFIG.MAX_ZIP_MB + ' MB.'; return; }
+    if (f.size > CONFIG.MAX_ZIP_MB * 1048576) { derr.textContent = 'This file is over ' + CONFIG.MAX_ZIP_MB + ' MB.'; return; }
     file = f; provider = null; derr.textContent = ''; title.textContent = f.name + ' ready';
-  }
+  };
   input.addEventListener('change', () => setFile(input.files[0]));
   ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
   ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
   drop.addEventListener('drop', e => setFile(e.dataTransfer.files[0]));
-  document.querySelectorAll('[data-provider]').forEach(b => b.addEventListener('click', () => {
-    // TODO(backend): real OAuth redirect to the provider, then come back with the chosen repo.
-    provider = b.dataset.provider; file = null; title.textContent = 'Drop your project here as a .zip';
-    toast(provider.charAt(0).toUpperCase() + provider.slice(1) + ' connected (mock)');
+  let repoUrl = null;
+  document.querySelectorAll('[data-provider]').forEach(b => b.addEventListener('click', async () => {
+    const prov = b.dataset.provider;
+    if (prov !== 'github') { toast(prov.charAt(0).toUpperCase() + prov.slice(1) + ' connection arrives in the next version'); return; }
+    if (!state.user) { window.location.href = CONFIG.API_BASE + '/auth/github/login'; return; }
+    const r = window.prompt('Your GitHub repository (owner/name):', '');
+    if (!r) return;
+    repoUrl = r.trim(); provider = 'github'; file = null;
+    title.textContent = repoUrl + ' ready'; derr.textContent = '';
   }));
-  document.getElementById('startDeep').addEventListener('click', async (e) => {
-    if (!file && !provider) { derr.textContent = 'Add a .zip file or connect a repository first.'; return; }
+  document.getElementById('startDeep').addEventListener('click', async e => {
+    if (!file && !repoUrl) { derr.textContent = 'Add a .zip file or connect a repository first.'; return; }
     if (!document.getElementById('dconsent').checked) { derr.textContent = 'Tick the box to confirm you own this project.'; return; }
     e.target.disabled = true; e.target.textContent = 'Starting…';
     try {
-      const { audit_id } = await api.startAudit(file ? { type: 'deep', file } : { type: 'deep', provider, email: document.getElementById('mail').value });
-      state.lastAuditId = audit_id;
-      go('#/scan/' + audit_id);
+      const payload = file ? { type: 'deep', file } : { type: 'deep', provider: 'github', repo_url: repoUrl };
+      const { audit_id } = await api.startAudit(payload);
+      state.lastAuditId = audit_id; go('#/scan/' + audit_id);
     } catch (ex) { derr.textContent = 'The audit could not start: ' + ex.message; e.target.disabled = false; e.target.textContent = 'Start the deep audit'; }
   });
 }
 
-/* 2 · Scan in progress (polls status, shows backend events as sentences) */
+/* 2 · Scan in progress */
 function screenScan(id) {
-  $app.innerHTML = `<header class="pub-head"><a class="logo" href="#/">LOGO</a><span class="small" style="font-family:var(--mono);font-size:14px">${esc((mock.audits[id] && mock.audits[id].target) || 'your app')}</span></header>
+  const target = (MOCK.audits[id] && MOCK.audits[id].target) || 'your app';
+  $app.innerHTML = `${brandCenter()}
   <main class="scan">
-    <div class="now" aria-live="polite"><span class="pulse">${ICON_SHIELD}</span><p class="shimmer" id="now">Starting the technical audit…</p></div>
-    <div><div class="bar" role="progressbar" aria-label="Audit progress" aria-valuemin="0" aria-valuemax="100" id="bar"><div id="fill"></div></div>
-      <div class="bar-meta"><span id="pct">0%</span><span id="eta"></span></div></div>
+    <span class="glass-soft mono" style="padding:10px 16px;border-radius:999px;font-size:13px;color:var(--text-2)">${esc(target)}</span>
+    <span class="orb orb-live" style="width:120px;height:120px"></span>
+    <div class="glass" style="width:100%;border-radius:32px;padding:32px;display:flex;flex-direction:column;gap:26px">
+      <p class="shimmer serif" id="now" aria-live="polite" style="margin:0;font-size:clamp(28px,4vw,40px);line-height:1.15;text-align:center">Starting the technical audit…</p>
+      <div><div class="bar" id="bar" role="progressbar" aria-label="Audit progress" aria-valuemin="0" aria-valuemax="100"><div class="flow" id="fill"></div></div>
+        <div style="display:flex;justify-content:space-between;font-size:14px;color:var(--faint);margin-top:10px"><span class="mono" id="pct">0%</span><span id="eta"></span></div></div>
+    </div>
     <ol class="history" id="hist"></ol>
-  </main>
-  <p class="small" style="text-align:center;padding:0 24px 40px">Your report opens automatically when the audit is done.</p>`;
-  const nowEl = document.getElementById('now'), fill = document.getElementById('fill'), bar = document.getElementById('bar'),
-        pct = document.getElementById('pct'), eta = document.getElementById('eta'), hist = document.getElementById('hist');
-  let lastCount = 0;
+    <p class="muted" style="margin:0;font-size:14px">Your report opens automatically when the audit is done.</p>
+  </main>`;
+  const nowEl = document.getElementById('now'), fill = document.getElementById('fill'), bar = document.getElementById('bar'), pct = document.getElementById('pct'), eta = document.getElementById('eta'), hist = document.getElementById('hist');
+  let last = 0;
   async function tick() {
     let s;
     try { s = await api.getAuditStatus(id); } catch (e) { nowEl.textContent = 'Connection lost. Retrying…'; return; }
-    if (s.status === 'failed') { clearTimers(); nowEl.classList.remove('shimmer'); nowEl.textContent = 'The audit stopped. Check that your app is online and try again.'; return; }
-    fill.style.width = s.progress + '%'; bar.setAttribute('aria-valuenow', s.progress);
-    pct.textContent = s.progress + '%';
-    eta.textContent = s.status === 'done' ? 'Done' : (s.eta_seconds < 10 ? 'Almost done' : 'About ' + s.eta_seconds + ' seconds left');
+    if (s.status === 'failed') { clearTimers(); nowEl.classList.remove('shimmer'); nowEl.textContent = 'The audit stopped. Check that your app is online, then start again.'; return; }
+    fill.style.width = s.progress + '%'; bar.setAttribute('aria-valuenow', s.progress); pct.textContent = s.progress + '%';
+    eta.textContent = s.status === 'done' ? 'Done' : s.eta_seconds < 10 ? 'Almost done' : 'About ' + s.eta_seconds + ' seconds left';
     const ev = s.events || [];
-    if (ev.length !== lastCount) {
-      lastCount = ev.length;
-      const cur = ev[ev.length - 1];
-      nowEl.textContent = s.status === 'done' ? 'Audit complete. Opening your report…' : cur.text;
+    if (ev.length !== last) {
+      last = ev.length;
+      nowEl.textContent = s.status === 'done' ? 'Audit complete. Opening your report…' : ev[ev.length - 1].text;
       const past = (s.status === 'done' ? ev : ev.slice(0, -1)).slice(-5).reverse();
-      hist.innerHTML = past.map((e, i) => `<li class="${e.kind === 'alert' ? 'alert' : ''}" style="opacity:${Math.max(.25, .85 - i * .16).toFixed(2)}"><span class="mk">${e.kind === 'alert' ? '!' : '✓'}</span>${esc(e.text)}</li>`).join('');
+      hist.innerHTML = past.map((e, i) => `<li class="${e.kind === 'alert' ? 'alert' : ''}" style="opacity:${Math.max(.22, .9 - i * .17).toFixed(2)}"><span class="mk">${e.kind === 'alert' ? '!' : '✓'}</span>${esc(e.text)}</li>`).join('');
     }
-    if (s.status === 'done') { clearTimers(); setTimeout(() => go('#/report/' + id), 1200); }
+    if (s.status === 'done') { bar.classList.add('done'); clearTimers(); setTimeout(() => go('#/report/' + id), 1200); }
   }
-  tick();
-  state.timers.push(setInterval(tick, CONFIG.POLL_MS));
+  tick(); state.timers.push(setInterval(tick, CONFIG.POLL_MS));
 }
 
-/* 3 · Report (founder / developer view) */
+/* 3 · Public report (no menu bar, founder / developer view, score explainer) */
 async function screenReport(id, view) {
-  id = id || state.lastAuditId || 'demo';
-  state.lastAuditId = id;
-  if (view) state.devView = view === 'dev';
+  id = id || state.lastAuditId || 'demo'; state.lastAuditId = id;
+  if (view) state.reportView = view; else if (!state.reportView) state.reportView = state.prefs.role === 'dev' ? 'dev' : 'founder';
+  const dev = state.reportView === 'dev';
   const r = await api.getReport(id);
-  const score = computeScore(r), open = openFindings(r), c = counts(open);
-  const order = { critical: 0, high: 1, medium: 2, low: 3 };
-  const list = r.findings.slice().sort((a, b) => order[a.severity] - order[b.severity]);
-  const head = `<header class="app-top"><a class="logo" href="${state.user ? '#/app/dashboard' : '#/'}">LOGO</a><span class="meta">${esc(r.project)} · ${r.type} audit · ${fmtDate(r.scanned_at)}</span></header>`;
-  const sw = `<nav class="switch-row" aria-label="Report view"><span class="small" style="font-size:15px">Show results for:</span>
-    <div class="seg"><a href="#/report/${id}?view=founder" ${!state.devView ? 'aria-current="page"' : ''}>Founder view</a><a href="#/report/${id}?view=dev" ${state.devView ? 'aria-current="page"' : ''}>Developer view</a></div></nav>`;
-  const verdict = score >= 80 ? ['Ready to share', 'var(--ok)'] : score >= 60 ? ['Almost there', 'var(--high)'] : ['Not ready to sell', 'var(--crit)'];
+  const list = r.findings.slice().sort((a, b) => SEV_ORDER[a.severity] - SEV_ORDER[b.severity]);
+  const open = list.filter(isOpen), c = counts(open), score = computeScore(list), v = verdict(score);
+  const fixNext = id2 => '#/app/fixes/' + r.project_id + (id2 ? '?select=' + id2 : '');
+  const head = `<div class="page-head" style="align-items:center">
+      <div><span class="mono muted" style="font-size:13px">${esc(r.project)} · ${r.type} audit · ${fmtDate(r.scanned_at)}${r.commit ? ' · ' + esc(r.commit) : ''}</span><h1 class="serif" style="margin:0;font-size:48px;line-height:1">Audit report</h1></div>
+      <div class="seg glass" role="group" aria-label="Report view"><a class="btn" href="#/report/${id}?view=founder" ${!dev ? 'aria-current="page"' : ''}>Founder view</a><a class="btn" href="#/report/${id}?view=dev" ${dev ? 'aria-current="page"' : ''}>Developer view</a></div>
+    </div>`;
   const headline = c.critical ? `${c.critical} critical issue${c.critical > 1 ? 's' : ''} expose${c.critical > 1 ? '' : 's'} your customer data.` : open.length ? `${open.length} issue${open.length > 1 ? 's' : ''} left to fix.` : 'No open issues. Share your security passport.';
-
-  if (!state.devView) {
-    $app.innerHTML = `<div class="page">${head}<main class="wrap">${sw}
-      <section class="card score-card">${ring(score, 148)}
-        <div class="body"><p class="verdict" style="color:${verdict[1]}">${verdict[0]}</p><h1>${headline}</h1>
-          <div class="chips">${countChips(c)}</div>
-          <div class="actions"><button class="btn btn-dark" id="fixAll" type="button">Fix the critical issues</button><button class="btn btn-line" id="dl" type="button">Download the report</button></div>
-        </div></section>
-      <section style="display:flex;flex-direction:column;gap:14px">
-        <div class="sec-head"><h2>What we found</h2><span>Sorted by severity · checked against OWASP Top 10</span></div>
-        ${list.map(f => `<article class="finding ${f.fix_status === 'verified' ? 'done' : ''}">
-          <div class="f-top"><div class="f-title"><div class="chips">${f.fix_status === 'verified' ? '<span class="chip sev-fixed">Fixed and verified</span>' : sevChip(f.severity)}<span class="cat">${esc(f.category)} · ${esc(f.owasp)}</span></div><h3>${esc(f.title)}</h3></div>
-            ${f.fix_status === 'verified' ? '' : `<button class="btn btn-dark" type="button" data-fix="${f.id}">Fix this</button>`}</div>
-          <p><strong>What it means:</strong> ${esc(f.impact)}</p>
-          <p class="who"><strong style="color:var(--ink)">Who could exploit it:</strong> ${esc(f.who_can_exploit)}</p>
-          ${levelBlock(f,'beginner')}
-          <div class="tech" id="tech-${f.id}" hidden><div>${esc(f.technical_detail)}</div><div style="color:var(--muted)">${esc(f.file)}${f.line ? ', line ' + f.line : ''}</div></div>
-          <button class="linkbtn" type="button" data-tech="${f.id}" aria-expanded="false" aria-controls="tech-${f.id}">Show technical detail</button>
-        </article>`).join('')}
-      </section></main></div>`;
-    document.querySelectorAll('[data-tech]').forEach(b => b.addEventListener('click', () => {
-      const box = document.getElementById('tech-' + b.dataset.tech); const open = box.hidden;
-      box.hidden = !open; b.setAttribute('aria-expanded', open); b.textContent = open ? 'Hide technical detail' : 'Show technical detail';
-    }));
-    wireLevels(r);
+  const scoreCard = `<section class="score-card glass">${ring(score, 190, true)}
+      <div style="flex:1 1 380px;display:flex;flex-direction:column;gap:14px">
+        <span class="chip" style="align-self:flex-start;font-size:13px;padding:6px 14px;background:var(--${v.tone === 'ok' ? 'ok' : v.tone}-bg, var(--lime));color:var(--${v.tone === 'ok' ? 'ink' : v.tone})">${v.label}</span>
+        <h2 class="serif" style="margin:0;font-size:38px;line-height:1.08">${headline}</h2>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">${countChips(c)}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px"><button class="btn btn-lime btn-lg" id="fixAll" type="button">Fix the critical issues</button><button class="btn btn-lg" style="font-weight:500" id="dl" type="button">Download the report</button></div>
+      </div></section>${scoreExplainer(list)}`;
+  let body;
+  if (!dev) {
+    body = `<div class="f-top" style="padding:8px 6px 0;align-items:baseline"><h2 style="margin:0;font-size:20px;font-weight:600">What we found</h2><span class="muted" style="font-size:14px">Sorted by severity · OWASP Top 10</span></div>
+      ${list.map(f => { const done = !isOpen(f); return `<article class="finding glass lift"><div class="rail rail-${done ? 'fixed' : f.severity}"></div><div class="f-body">
+        <div class="f-top"><div class="f-title"><div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">${done ? '<span class="chip sev-fixed">Fixed and verified</span>' : sevChip(f.severity)}<span class="mono muted" style="font-size:12px">${esc(f.category)} · ${esc(f.owasp)}</span></div><h3>${esc(f.title)}</h3></div>
+          ${done ? '' : `<button class="btn btn-lime" type="button" data-fix="${f.id}">Fix this</button>`}</div>
+        <p style="margin:0;font-size:16px;line-height:1.55">${esc(f.impact)}</p>
+        <p class="muted" style="margin:0;font-size:14px">Who could exploit it: ${esc(f.who_can_exploit)}</p>
+        <div class="code" id="tech-${f.id}" hidden style="padding:10px 0"><div>${esc(f.technical_detail)}</div><div class="muted">${esc(f.file)}${f.line ? ', line ' + f.line : ''}</div></div>
+        <button class="linkbtn" type="button" data-tech="${f.id}" aria-expanded="false" aria-controls="tech-${f.id}" style="align-self:flex-start">Show technical detail</button>
+      </div></article>`; }).join('')}`;
   } else {
-    const confirmed = r.findings.filter(f => f.proof && f.proof.confirmed && f.fix_status !== 'verified').length;
-    const cats = {};
-    open.forEach(f => { cats[f.layer] = (cats[f.layer] || 0) + 1; });
-    $app.innerHTML = `<div class="page">${head}<main class="wrap wide">${sw}
-      <section class="card dev-sum"><div class="nums"><span><strong style="font-size:22px">${score}</strong><span class="small">/100</span></span><span><strong>${open.length}</strong> open findings</span>${countChips(c)}<span class="small" style="font-size:15px">${r.ignored.length} ignored by AI triage</span><span class="small" style="font-size:15px">${confirmed} confirmed by a live test</span></div>
-        <div class="actions"><button class="btn btn-line" id="export" type="button">Export SARIF / JSON</button><button class="btn btn-line" type="button" id="ci">Add to CI (GitHub Action)</button><button class="btn btn-dark" id="fixAll" type="button">Open fix PRs (${open.filter(f => f.proof && f.proof.confirmed).length})</button></div></section>
-      <div class="dev-grid">
-        <aside class="card filters" aria-label="Filters">
-          <fieldset><legend>Severity</legend>${['critical', 'high', 'medium', 'low'].map(s => `<label><input type="checkbox" data-sev="${s}" ${c[s] ? 'checked' : ''}>${SEV_LABEL[s]}<span class="count">${c[s]}</span></label>`).join('')}</fieldset>
-          <fieldset><legend>Layer</legend>${Object.keys(cats).map(k => `<label><input type="checkbox" data-layer="${esc(k)}" checked>${esc(k)}<span class="count">${cats[k]}</span></label>`).join('')}</fieldset>
-          <label style="align-items:flex-start;line-height:1.4;border-top:1px solid var(--line-2);padding-top:16px"><input type="checkbox" id="hideFp" checked style="margin-top:1px">Hide findings our AI triage marked as false positives</label>
-        </aside>
-        <section class="dev-list" id="devList">
-          ${list.map(f => {
-            const col = f.fix_status === 'verified' ? 'var(--ok)' : 'var(--' + (f.severity === 'critical' ? 'crit' : f.severity === 'high' ? 'high' : 'med') + ')';
-            return `<article class="drow" data-row-sev="${f.severity}" data-row-layer="${esc(f.layer)}"><div class="stripe" style="background:${col}"></div><div class="in">
-              <div class="f-top" style="align-items:center"><div class="chips" style="align-items:center">${f.fix_status === 'verified' ? '<span class="chip sev-fixed">Fixed</span>' : sevChip(f.severity)}<code class="rule">${esc(f.rule_id)}</code></div>
-                <div class="tags"><span>${esc(f.cwe)}</span><span>${esc(f.owasp)}</span><span>${esc(f.layer)}</span><span>confidence: ${esc(f.confidence)}</span></div></div>
-              <span class="loc">${esc(f.file)}${f.line ? ':' + f.line : ''}</span>
-              <p>${esc(f.summary)}</p>
-              ${levelBlock(f,'expert')}
-              ${f.code && f.code.length ? `<div class="code">${f.code.map(l => `<div class="${l.hit ? 'hit' : ''}"><span class="ln">${l.n}</span>${esc(l.text)}</div>`).join('')}</div>` : ''}
-              <div class="proof ${f.proof.confirmed ? 'ok' : ''}"><strong>${f.proof.confirmed ? 'Confirmed by live test:' : 'Not tested live:'}</strong> ${esc(f.proof.text)}</div>
-              ${f.fix_status === 'verified' ? '' : `<div class="actions"><button class="btn btn-dark" type="button" data-fix="${f.id}" style="min-height:40px;font-size:13px">Open fix PR</button><button class="btn btn-line" type="button" data-prompt="${f.id}" style="min-height:40px;font-size:13px">Copy fix prompt for Cursor / Lovable</button><button class="btn btn-line" type="button" data-fp="${f.id}" style="min-height:40px;font-size:13px">Mark as false positive</button></div>`}
-            </div></article>`;
-          }).join('')}
-          <div id="ignoredBox" hidden>${r.ignored.map(g => `<article class="ignored"><div class="f-top" style="align-items:center"><div class="chips" style="align-items:center"><span class="chip" style="background:#EDEDEA;color:var(--ink-2)">Ignored by AI triage</span><code class="rule" style="color:var(--muted)">${esc(g.rule_id)}</code></div><span class="cat">not counted in the score</span></div>
-            <span class="loc">${esc(g.location)}</span><p><strong>Likely false positive:</strong> ${esc(g.reason)}</p>
-            <div class="actions"><button class="btn btn-line" type="button" style="min-height:40px;font-size:13px">Agree and ignore</button><button class="btn btn-line" type="button" style="min-height:40px;font-size:13px">Disagree, keep it</button></div></article>`).join('')}</div>
-        </section></div></main></div>`;
-    const applyFilters = () => {
-      const sevOn = {}; document.querySelectorAll('[data-sev]').forEach(i => sevOn[i.dataset.sev] = i.checked);
-      const layOn = {}; document.querySelectorAll('[data-layer]').forEach(i => layOn[i.dataset.layer] = i.checked);
-      document.querySelectorAll('[data-row-sev]').forEach(row => { row.hidden = !(sevOn[row.dataset.rowSev] && (layOn[row.dataset.rowLayer] !== false)); });
+    const confirmed = open.filter(f => f.proof.confirmed).length;
+    const layers = {}; open.forEach(f => { layers[f.layer] = (layers[f.layer] || 0) + 1; });
+    body = `<div class="row" style="gap:20px;align-items:flex-start">
+      <aside class="filters glass" aria-label="Filters">
+        <fieldset><legend>Severity</legend>${['critical', 'high', 'medium', 'low'].map(s => `<label><input type="checkbox" data-sev="${s}" ${c[s] ? 'checked' : ''}>${SEV_LABEL[s]}<span class="muted" style="margin-left:auto">${c[s]}</span></label>`).join('')}</fieldset>
+        <fieldset><legend>Layer</legend>${Object.keys(layers).map(k => `<label><input type="checkbox" data-layer="${esc(k)}" checked>${esc(k)}<span class="muted" style="margin-left:auto">${layers[k]}</span></label>`).join('')}</fieldset>
+        <label style="align-items:flex-start;line-height:1.4;padding-top:16px" class="divider"><input type="checkbox" id="hideFp" checked style="margin-top:1px">Hide AI-flagged false positives</label>
+        <p class="muted" style="margin:0;font-size:13px">${confirmed} of ${open.length} confirmed by a live test</p>
+        <button class="btn btn-sm" type="button" id="export">Export JSON</button>
+      </aside>
+      <section style="flex:999 1 640px;min-width:0;display:flex;flex-direction:column;gap:14px">
+        ${list.map(f => { const done = !isOpen(f); return `<article class="finding glass lift" data-row-sev="${f.severity}" data-row-layer="${esc(f.layer)}" style="border-radius:26px;padding:20px 22px"><div class="rail rail-${done ? 'fixed' : f.severity}"></div><div class="f-body">
+          <div class="f-top" style="align-items:center"><div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">${done ? '<span class="chip sev-fixed">Fixed</span>' : sevChip(f.severity)}<code class="mono" style="font-size:15px;font-weight:500">${esc(f.rule_id)}</code></div>
+            <div class="mono" style="display:flex;flex-wrap:wrap;gap:6px;font-size:12px;color:var(--muted)">${[f.cwe, 'OWASP ' + f.owasp, f.layer, 'confidence: ' + f.confidence].map(t => `<span class="glass-soft" style="padding:3px 9px;border-radius:999px">${esc(t)}</span>`).join('')}</div></div>
+          <span class="mono" style="font-size:14px;color:var(--link)">${esc(f.file)}${f.line ? ':' + f.line : ''}</span>
+          <p style="margin:0;font-size:14px;line-height:1.55">${esc(f.summary)}</p>
+          ${f.code.length ? `<div class="code">${f.code.map(l => `<div class="${l.hit ? 'hit' : ''}"><span class="ln">${l.n}</span>${esc(l.text)}</div>`).join('')}</div>` : ''}
+          <div class="proof ${f.proof.confirmed ? 'ok' : ''}"><strong>${f.proof.confirmed ? 'Confirmed by live test:' : 'Not tested live:'}</strong> ${esc(f.proof.text)}</div>
+          ${done ? '' : `<div style="display:flex;flex-wrap:wrap;gap:8px"><button class="btn btn-lime btn-sm" type="button" data-fix="${f.id}">Open fix PR</button><button class="btn btn-sm" type="button" data-prompt="${f.id}">Copy fix prompt</button><button class="btn btn-sm" type="button" data-toast="Marked as false positive (mock)">Mark as false positive</button></div>`}
+        </div></article>`; }).join('')}
+        <div id="ignoredBox" hidden>${r.ignored.map(g => `<article class="glass-soft" style="border-radius:26px;padding:20px 22px;border:1.5px dashed rgba(22,48,31,.18);display:flex;flex-direction:column;gap:10px">
+          <div class="f-top" style="align-items:center"><div style="display:flex;gap:10px;align-items:center"><span class="chip sev-low">Ignored by AI triage</span><code class="mono muted" style="font-size:15px">${esc(g.rule_id)}</code></div><span class="mono muted" style="font-size:12px">not counted in the score</span></div>
+          <span class="mono" style="font-size:14px;color:var(--link)">${esc(g.location)}</span><p style="margin:0;font-size:14px;line-height:1.55"><strong>Likely false positive:</strong> ${esc(g.reason)}</p></article>`).join('')}</div>
+      </section></div>`;
+  }
+  $app.innerHTML = `${brandCenter()}<main class="wrap ${dev ? 'wide' : ''}">${head}${scoreCard}${body}</main>`;
+  bindExplainer();
+  document.querySelectorAll('[data-tech]').forEach(b => b.addEventListener('click', () => {
+    const box = document.getElementById('tech-' + b.dataset.tech), opening = box.hidden;
+    box.hidden = !opening; b.setAttribute('aria-expanded', opening); b.textContent = opening ? 'Hide technical detail' : 'Show technical detail';
+  }));
+  document.querySelectorAll('[data-fix]').forEach(b => b.addEventListener('click', () => requireAccount(fixNext(b.dataset.fix))));
+  document.getElementById('fixAll').addEventListener('click', () => requireAccount(fixNext('')));
+  document.getElementById('dl').addEventListener('click', () => requireAccount('#/app/passport/' + r.project_id));
+  if (dev) {
+    const apply = () => {
+      const sevOn = {}, layOn = {};
+      document.querySelectorAll('[data-sev]').forEach(i => sevOn[i.dataset.sev] = i.checked);
+      document.querySelectorAll('[data-layer]').forEach(i => layOn[i.dataset.layer] = i.checked);
+      document.querySelectorAll('[data-row-sev]').forEach(row => { row.hidden = !(sevOn[row.dataset.rowSev] && layOn[row.dataset.rowLayer] !== false); });
       document.getElementById('ignoredBox').hidden = document.getElementById('hideFp').checked;
     };
-    document.querySelectorAll('.filters input').forEach(i => i.addEventListener('change', applyFilters));
-    applyFilters();
-    wireLevels(r);
+    document.querySelectorAll('.filters input').forEach(i => i.addEventListener('change', apply)); apply();
     document.querySelectorAll('[data-prompt]').forEach(b => b.addEventListener('click', async () => {
       const f = r.findings.find(x => x.id === b.dataset.prompt);
       const prompt = `Security fix needed in ${f.file}${f.line ? ' (line ' + f.line + ')' : ''}: ${f.summary} Fix it without changing the app's behaviour for signed-in users, and explain what you changed.`;
       try { await navigator.clipboard.writeText(prompt); toast('Fix prompt copied'); } catch (e) { toast('Copy failed: select and copy manually'); }
     }));
-    document.querySelectorAll('[data-fp]').forEach(b => b.addEventListener('click', () => toast('Marked as false positive (mock): we will learn from it')));
     document.getElementById('export').addEventListener('click', () => {
-      // TODO(backend): serve real SARIF from GET /audits/:id/report.sarif
       const blob = new Blob([JSON.stringify(r, null, 2)], { type: 'application/json' });
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = r.project + '-audit.json'; a.click(); URL.revokeObjectURL(a.href);
     });
-    document.getElementById('ci').addEventListener('click', () => requireAccount('#/app/dashboard'));
   }
-  const firstOpen = list.find(f => f.fix_status !== 'verified');
-  document.querySelectorAll('[data-fix]').forEach(b => b.addEventListener('click', () => requireAccount('#/app/fix/' + id + '/' + b.dataset.fix)));
-  const fixAll = document.getElementById('fixAll');
-  if (fixAll) fixAll.addEventListener('click', () => firstOpen ? requireAccount('#/app/fix/' + id + '/' + firstOpen.id) : requireAccount('#/app/passport/' + id));
-  const dl = document.getElementById('dl');
-  if (dl) dl.addEventListener('click', () => requireAccount('#/app/passport/' + id));
 }
 
 /* 4 · Account gate */
 function screenSignup(next) {
   next = next || '#/app/dashboard';
-  const id = state.lastAuditId || 'demo';
-  const report = (mock.audits[id] && mock.audits[id].report) || null;
-  const lead = report ? `Your audit of ${esc(report.project)} (score ${computeScore(report)}/100, ${openFindings(report).length} issues) is saved to your account.` : 'Save your audits, apply fixes and share your security passport.';
-  $app.innerHTML = `<div class="dim"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="st">
-    <div class="dialog-head"><div><h1 id="st">Create your free account to fix these issues</h1><p class="lead">${lead}</p></div><a class="close" href="#/report/${id}" aria-label="Close">×</a></div>
-    <ul class="benefits"><li>Apply the fixes and re-test them</li><li>Download and share your security passport</li><li>Re-scan automatically when you ship a new version</li></ul>
-    <div class="stack"><button class="btn btn-dark btn-pill btn-lg" data-method="github" type="button">${ICON_GIT}Continue with GitHub</button>
-      <span class="small" style="text-align:center">Recommended: lets us propose fixes directly in your repository.</span>
-      <button class="btn btn-line btn-pill btn-lg" data-method="google" type="button">Continue with Google</button></div>
+  const our = MOCK.findings.filter(f => f.project_id === 'our-crm');
+  $app.innerHTML = `<div class="dialog-wrap"><div class="dialog glass" role="dialog" aria-modal="true" aria-labelledby="st">
+    <div class="dialog-head"><div><h1 id="st" class="serif" style="margin:0;font-size:40px;line-height:1.02">Create your free account to fix these issues</h1><p class="muted" style="margin:8px 0 0;font-size:15px;line-height:1.5">Your audit of our-crm (${computeScore(our)}/100, ${our.filter(isOpen).length} issues) is saved to your account.</p></div><a class="btn btn-icon" href="#/report/${state.lastAuditId || 'demo'}" aria-label="Close">×</a></div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">${['Apply and re-test fixes', 'Share your passport', 'Auto re-scan on new versions'].map(t => `<span class="glass-soft" style="padding:8px 14px;border-radius:999px;font-size:14px">${t}</span>`).join('')}</div>
+    <button class="btn btn-mint btn-lg" type="button" data-method="github">${ICON_GIT}Continue with GitHub</button>
+    <span class="muted" style="font-size:13px;text-align:center;margin-top:-10px">Recommended: lets us propose fixes in your repository.</span>
+    <button class="btn btn-lg" style="font-weight:500" type="button" data-method="google">Continue with Google</button>
     <div class="or">or with email</div>
     <form id="emailForm" class="stack" novalidate>
-      <div class="field"><label for="em">Work email</label><input id="em" type="email" placeholder="you@startup.com" autocomplete="email"></div>
-      <div class="field"><label for="pw">Password</label><input id="pw" type="password" placeholder="At least 12 characters" autocomplete="new-password"></div>
-      <div class="err" id="serr" role="alert" style="padding:0"></div>
-      <button class="btn btn-pill btn-lg" type="submit" style="background:var(--ink-2);color:#fff">Create my account</button>
+      <div class="field"><label for="em">Work email</label><input id="em" class="input" type="email" placeholder="you@startup.com" autocomplete="email"></div>
+      <div class="field"><label for="pw">Password</label><input id="pw" class="input" type="password" placeholder="At least 12 characters" autocomplete="new-password"></div>
+      <div class="err" id="serr" role="alert"></div>
+      <button class="btn btn-lime btn-lg" type="submit">Create my account</button>
     </form>
-    <p class="small" style="text-align:center;font-size:14px">Already have an account? <a href="#" id="login" style="font-weight:600;color:var(--ink)">Log in</a></p>
-    <p class="small" style="text-align:center;font-size:12px">By continuing you accept the [Terms] and [Privacy policy].</p>
+    <p class="muted" style="margin:0;font-size:14px;text-align:center">Already have an account? <a href="#" id="login" style="font-weight:600">Log in</a></p>
+    <p class="muted" style="margin:0;font-size:12px;text-align:center">By continuing you accept the [Terms] and [Privacy policy].</p>
   </div></div>`;
-  const done = async (payload) => {
-    try { const { user } = await api.signup(payload); state.user = user; go(next); }
-    catch (e) { document.getElementById('serr').textContent = 'Sign-up failed: ' + e.message; }
-  };
-  // TODO(backend): GitHub / Google must be real OAuth redirects. Mock signs in directly.
-  document.querySelectorAll('[data-method]').forEach(b => b.addEventListener('click', () => done({ method: b.dataset.method })));
-  document.getElementById('emailForm').addEventListener('submit', (e) => {
+  const after = user => { state.user = user; go(user.onboarded ? next : '#/onboarding?next=' + encodeURIComponent(next)); };
+  const done = async p => { try { after((await api.signup(p)).user); } catch (e) { document.getElementById('serr').textContent = 'Sign-up failed: ' + e.message; } };
+  document.querySelectorAll('[data-method]').forEach(b => b.addEventListener('click', () => {
+    const m = b.dataset.method;
+    if (m === 'github') { window.location.href = CONFIG.API_BASE + '/auth/github/login'; return; }
+    if (m === 'google') { toast('Google sign-in arrives in the next version — use GitHub or email'); return; }
+    done({ method: m });
+  }));
+  document.getElementById('emailForm').addEventListener('submit', e => {
     e.preventDefault();
     const em = document.getElementById('em').value.trim(), pw = document.getElementById('pw').value, serr = document.getElementById('serr');
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { serr.textContent = 'Enter a valid email address.'; return; }
     if (pw.length < 12) { serr.textContent = 'Use at least 12 characters for your password.'; return; }
     done({ method: 'email', email: em, password: pw });
   });
-  document.getElementById('login').addEventListener('click', (e) => { e.preventDefault(); done({ method: 'email', email: 'founder@startup.com' }); });
+  document.getElementById('login').addEventListener('click', e => { e.preventDefault(); toast('Enter your email above, then click Create my account'); });
 }
 
-/* 5 · Dashboard */
+/* 5 · Onboarding (4 steps) */
+const QUESTIONS = [
+  { key: 'role', title: 'What best describes you?', sub: 'We set your report view to match: plain language or technical detail.', multi: false, options: [['founder', 'Founder, non-technical'], ['dev', 'Developer'], ['agency', 'Agency or freelancer'], ['other', 'Other']] },
+  { key: 'built_with', title: 'How did you build your app?', sub: 'We format fix prompts for the tool you use.', multi: false, options: [['lovable', 'Lovable'], ['bolt', 'Bolt'], ['cursor', 'Cursor or Claude Code'], ['replit', 'Replit'], ['hand', 'Coded by hand, with AI help'], ['unsure', 'Not sure']] },
+  { key: 'goal', title: 'What is coming up for your app?', sub: 'Pick the closest match.', multi: false, options: [['launch', 'Launching soon', 'Check before going public'], ['client', 'Closing a B2B client', 'They will ask about security'], ['raise', 'Raising funds', 'Investor due diligence'], ['incident', 'Something went wrong', 'Suspected leak or hack']] },
+  { key: 'concerns', title: 'What worries you most?', sub: 'We show these findings first.', multi: true, options: [['data', 'Customer data leaking', 'Database open to strangers'], ['secrets', 'Exposed secret keys', 'Keys visible in your code'], ['review', 'Failing a security review', 'Client questionnaire, GDPR'], ['break', 'Breaking my app', 'When applying fixes'], ['ai', 'AI features misused', 'Prompt injection in chatbots'], ['unsure', 'Honestly, not sure']] }
+];
+function screenOnboarding(next) {
+  next = next || '#/app/dashboard';
+  const answers = {}; let step = 0;
+  const draw = () => {
+    const summary = step >= QUESTIONS.length, q = QUESTIONS[Math.min(step, QUESTIONS.length - 1)], pct = summary ? 100 : Math.round((step + 1) / QUESTIONS.length * 100);
+    const val = answers[q.key], on = id => q.multi ? (val || []).includes(id) : val === id, answered = q.multi ? (val || []).length > 0 : !!val;
+    const roleT = { founder: ['Founder view by default', 'Plain-language results, technical detail one click away.'], dev: ['Developer view by default', 'Rule IDs, code snippets and exports up front.'], agency: ['Multi-client workspace', 'One project per client, a passport for each.'], other: ['Founder view by default', 'Switch to the developer view anytime.'] }[answers.role] || ['Founder view by default', ''];
+    const goalT = { launch: ['Pre-launch checklist', 'What must be fixed before you go public.'], client: ['Security passport first', 'Ready to send to your client once critical issues are fixed.'], raise: ['Investor-ready report', 'A passport for your data room.'], incident: ['Incident mode', 'We check for signs of an active leak first.'] }[answers.goal] || ['Pre-launch checklist', ''];
+    const builtT = { lovable: 'Fix prompts written for Lovable.', bolt: 'Fix prompts written for Bolt.', cursor: 'Fix prompts written for Cursor and Claude Code.', replit: 'Fix prompts written for Replit.' }[answers.built_with] || 'Fixes delivered as pull requests and copyable prompts.';
+    const pri = (answers.concerns || []).length && !(answers.concerns || []).includes('unsure') ? 'Findings about what worries you most are shown at the top.' : 'Issues are sorted by how much damage they could cause.';
+    $app.innerHTML = `<header style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:16px;padding:24px 40px"><span class="brand"><span class="orb" style="width:34px;height:34px"></span>Syberia</span><a class="btn btn-sm" href="${next}" id="skip">Skip for now</a></header>
+    <main style="max-width:820px;margin:0 auto;padding:40px 24px 64px"><div class="glass" style="border-radius:40px;padding:clamp(24px,5vw,40px);display:flex;flex-direction:column;gap:30px">
+      <div style="display:flex;align-items:center;gap:18px"><span class="muted" style="font-size:14px;white-space:nowrap">${summary ? 'All set' : 'Step ' + (step + 1) + ' of ' + QUESTIONS.length}</span><div class="bar" style="flex:1 1 auto;height:8px" role="progressbar" aria-label="Questionnaire progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><div class="flow" style="width:${pct}%"></div></div><span class="mono muted" style="font-size:14px">${pct}%</span></div>
+      ${summary ? `<div style="display:flex;flex-direction:column;align-items:flex-start;gap:12px"><span class="orb orb-live" style="width:64px;height:64px"></span><h1 class="serif" style="margin:0;font-size:clamp(36px,5vw,50px);line-height:1">Your dashboard is ready</h1><p class="muted" style="margin:0;font-size:17px">Here is what we tailored for you. Change it anytime in Settings.</p></div>
+        <ul style="margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px">${[[roleT[0], roleT[1]], ['Fixes for your tool', builtT], [goalT[0], goalT[1]], ['Your priorities first', pri]].map(([t, d]) => `<li class="glass-soft" style="display:flex;gap:14px;align-items:flex-start;padding:16px 18px;border-radius:22px"><span class="chip sev-fixed" style="flex:0 0 28px;height:28px;justify-content:center;padding:0;font-size:14px">✓</span><div><strong style="font-size:16px;font-weight:600">${t}</strong><div class="muted" style="font-size:14px">${d}</div></div></li>`).join('')}</ul>`
+      : `<div><h1 class="serif" style="margin:0;font-size:clamp(36px,5vw,50px);line-height:1">${q.title}</h1><p class="muted" style="margin:10px 0 0;font-size:17px">${q.sub}</p></div>
+        <div class="opts" role="group" aria-label="${esc(q.title)}">${q.options.map(([id, l, s]) => `<button class="btn opt" type="button" aria-pressed="${on(id)}" data-opt="${id}"><span style="font-size:17px;font-weight:500">${l}</span>${s ? `<span class="muted" style="font-size:14px;font-weight:400">${s}</span>` : ''}</button>`).join('')}</div>
+        ${q.multi ? '<p class="muted" style="margin:-14px 0 0;font-size:14px">You can pick several.</p>' : ''}`}
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:16px">
+        <button class="linkbtn" type="button" id="back" ${step === 0 ? 'disabled' : ''} style="text-decoration:none;font-size:17px;font-weight:500;${step === 0 ? 'opacity:.4' : ''}">← Back</button>
+        ${summary ? '<button class="btn btn-lime btn-lg" type="button" id="finish">Go to my dashboard</button>' : `<button class="btn btn-mint btn-lg" type="button" id="next" ${answered ? '' : 'disabled'}>Continue</button>`}
+      </div></div></main>`;
+    document.querySelectorAll('[data-opt]').forEach(b => b.addEventListener('click', () => {
+      const id = b.dataset.opt;
+      if (q.multi) {
+        let arr = (answers[q.key] || []).slice();
+        if (id === 'unsure') arr = arr.includes(id) ? [] : [id];
+        else { arr = arr.filter(x => x !== 'unsure'); arr = arr.includes(id) ? arr.filter(x => x !== id) : arr.concat(id); }
+        answers[q.key] = arr;
+      } else answers[q.key] = id;
+      draw();
+    }));
+    const back = document.getElementById('back'); if (back) back.addEventListener('click', () => { if (step > 0) { step--; draw(); } });
+    const nx = document.getElementById('next'); if (nx) nx.addEventListener('click', () => { step++; draw(); });
+    const fin = document.getElementById('finish');
+    if (fin) fin.addEventListener('click', async () => {
+      await api.saveOnboarding(answers);
+      state.prefs = Object.assign({}, answers); state.reportView = answers.role === 'dev' ? 'dev' : 'founder';
+      if (state.user) state.user.onboarded = true;
+      go(next);
+    });
+  };
+  draw();
+}
+
+/* data helpers for platform pages */
+async function loadWorkspace() {
+  const [projects, findings] = await Promise.all([api.listProjects(), api.listFindings()]);
+  projects.forEach(p => {
+    const fs = findings.filter(f => f.project_id === p.id), open = fs.filter(isOpen);
+    p.findings = fs; p.score = computeScore(fs); p.counts = counts(open);
+    p.code = open.filter(f => f.group === 'code').length; p.supply = open.filter(f => f.group === 'supply_chain').length;
+  });
+  return { projects, findings };
+}
+function projectsTable(projects) {
+  return `<div class="tbl"><table style="min-width:980px"><thead><tr>
+    <th style="width:28px"><input class="check" type="checkbox" id="selAll" aria-label="Select all projects"></th><th>Project</th><th>Score</th><th>Last scan</th><th class="num">Code findings</th><th class="num">Supply chain findings</th><th class="num">Scanned dependencies</th><th class="num">Workflow issues</th><th>Tags</th></tr></thead><tbody>
+    ${projects.map(p => { const t = scoreTone(p.score); return `<tr>
+      <td><input class="check" type="checkbox" data-sel="${p.id}" aria-label="Select ${esc(p.repo)}"></td>
+      <td><a href="#/app/findings?project=${p.id}" style="display:inline-flex;align-items:center;gap:8px;color:var(--link);text-decoration:none;font-weight:500">${ICON_GIT}${esc(p.repo)}</a></td>
+      <td><span class="pill-score" style="background:${t[0]};color:${t[1]}">${p.score}</span></td>
+      <td><span style="display:inline-flex;align-items:center;gap:8px;white-space:nowrap"><span class="status-dot" style="${p.last_scan_ok ? 'background:#7FC97A;color:#16301F' : 'background:#F5C24E;color:#4A3300'}" aria-label="${p.last_scan_ok ? 'Up to date' : 'Re-scan advised'}">${p.last_scan_ok ? '✓' : '!'}</span>${esc(p.last_scan_at_label)}</span></td>
+      <td class="num"><a class="${p.code ? '' : 'zero'}" href="#/app/findings?project=${p.id}">${p.code}</a></td>
+      <td class="num"><a class="${p.supply ? '' : 'zero'}" href="#/app/findings?project=${p.id}">${p.supply}</a></td>
+      <td class="num" style="color:var(--link)">${p.scanned_dependencies}</td>
+      <td class="num">${p.workflow_issues}</td>
+      <td><span style="display:flex;flex-wrap:wrap;gap:6px">${p.tags.concat(p.commits_since_scan ? ['re-scan advised'] : []).map(x => `<span class="tag glass-soft">${esc(x)}</span>`).join('')}</span></td>
+    </tr>`; }).join('')}</tbody></table></div>`;
+}
+function bindProjectsTable() {
+  const all = document.getElementById('selAll'); if (!all) return;
+  all.addEventListener('change', () => document.querySelectorAll('[data-sel]').forEach(c => c.checked = all.checked));
+  const rs = document.getElementById('rescanSel');
+  if (rs) rs.addEventListener('click', async () => {
+    const ids = [...document.querySelectorAll('[data-sel]:checked')].map(c => c.dataset.sel);
+    if (!ids.length) { toast('Select at least one project to re-scan'); return; }
+    await Promise.all(ids.map(id => api.rescan(id))); toast('Re-scan started for ' + ids.length + ' project' + (ids.length > 1 ? 's' : '')); render();
+  });
+}
+
+/* 6 · Dashboard */
 async function screenDashboard() {
-  const projects = await api.listProjects();
+  const { projects, findings } = await loadWorkspace();
   const avg = Math.round(projects.reduce((s, p) => s + p.score, 0) / projects.length);
-  const crit = projects.reduce((s, p) => s + (p.counts.critical || 0), 0);
-  const live = projects.find(p => p.live) || projects[0];
-  const liveReport = await api.getReport(live.audit_id);
-  const verifiedCount = liveReport.findings.filter(f => f.fix_status === 'verified').length;
-  const firstOpen = openFindings(liveReport).sort((a, b) => WEIGHTS[b.severity] - WEIGHTS[a.severity])[0];
-  const inner = `<div class="main-head"><div><h1>Dashboard</h1><p>Your apps, their security score and what to do next.</p></div>
-      <div class="actions"><a class="btn btn-line" href="#/">Quick audit</a><a class="btn btn-dark" href="#/deep">+ New project</a></div></div>
-    <div class="kpis">
-      <div class="kpi"><span>Average score</span><strong>${avg}<span style="font-size:16px;color:var(--muted);font-weight:500">/100</span></strong></div>
-      <div class="kpi"><span>Open critical issues</span><strong style="color:${crit ? 'var(--crit)' : 'var(--ok)'}">${crit}</strong></div>
-      <div class="kpi"><span>Fixes verified on ${esc(live.name)}</span><strong style="color:var(--ok)">${verifiedCount}</strong></div>
-      <div class="kpi"><span>Projects</span><strong>${projects.length}</strong></div>
-    </div>
-    <div class="two">
-      <section class="card grow"><div class="sec-head"><h2 style="font-size:18px">Projects</h2></div>
-        <div class="tbl"><table><thead><tr><th>Project</th><th>Score</th><th>Open issues</th><th>Last audit</th><th>Status</th></tr></thead><tbody>
-        ${projects.map(p => { const t = scoreTone(p.score); const iss = countChips(p.counts) || '<span class="small">none</span>';
-          return `<tr><td>${p.audit_id ? `<a href="#/report/${p.audit_id}" style="font-weight:600">${esc(p.name)}</a>` : `<strong>${esc(p.name)}</strong>`}<div class="cat">${esc(p.stack)}</div></td>
-            <td><span class="pill-score" style="background:${t[0]};color:${t[1]}">${p.score}</span></td><td><div class="chips">${iss}</div></td><td class="small" style="font-size:15px">${esc(p.last_audit)}</td><td style="color:${t[1]};font-weight:600;font-size:13px">${esc(p.status)}</td></tr>`; }).join('')}
-        </tbody></table></div></section>
-      <section class="card side-col" style="display:flex;flex-direction:column;gap:12px"><h2 style="margin:0;font-size:18px">Next best actions</h2>
-        ${firstOpen ? `<div class="action urgent"><strong>Fix ${openFindings(liveReport).length} open issue${openFindings(liveReport).length > 1 ? 's' : ''} on ${esc(live.name)}</strong><span>Start with: ${esc(firstOpen.title.toLowerCase())}.</span><a class="btn btn-dark" style="align-self:flex-start;min-height:40px;font-size:14px" href="#/app/fix/${live.audit_id}/${firstOpen.id}">Start fixing</a></div>`
-          : `<div class="action"><strong>Share the passport of ${esc(live.name)}</strong><span>All issues are fixed and verified.</span><a class="btn btn-dark" style="align-self:flex-start;min-height:40px;font-size:14px" href="#/app/passport/${live.audit_id}">Open passport</a></div>`}
-        <div class="action"><strong>Re-scan client-portal</strong><span>12 new commits since the last audit.</span></div>
-        <div class="action"><strong>Turn on automatic re-scans</strong><span>Audit every new version before it goes live.</span></div>
-      </section></div>
-    <section class="card"><h2 style="margin:0 0 8px;font-size:18px">Recent activity</h2><ol class="activity">
-      <li><span>${liveReport.type === 'deep' ? 'Deep' : 'Quick'} audit of ${esc(live.name)} finished: ${liveReport.findings.length} issues found</span><span>Today</span></li>
-      ${verifiedCount ? `<li><span>${verifiedCount} fix${verifiedCount > 1 ? 'es' : ''} verified on ${esc(live.name)}</span><span>Today</span></li>` : ''}
-      <li><span>Account created</span><span>Today</span></li>
-      <li><span>Security passport of sales-landing shared with [prospect]</span><span>3 days ago</span></li></ol></section>`;
-  $app.innerHTML = shell('dashboard', inner);
-}
-
-/* 6 · Fix a finding (creates fix, polls status) */
-async function screenFix(auditId, findingId) {
-  state.lastAuditId = auditId;
-  const report = await api.getReport(auditId);
-  const f = report.findings.find(x => x.id === findingId);
-  if (!f) { $app.innerHTML = shell('fixes', '<h1>Finding not found</h1>'); return; }
-  const before = computeScore(report);
-  const steps = [['pr_created', 'Fix proposed on GitHub'], ['merged', 'Approved and merged by you'], ['retesting', 'Re-testing the attack'], ['verified', 'Fixed and verified']];
-  const others = openFindings(report).filter(x => x.id !== f.id);
-  $app.innerHTML = shell('fixes', `<a href="#/report/${auditId}" class="small" style="font-size:15px;text-decoration:none;min-height:44px;display:flex;align-items:center">← Back to the report</a>
-    <div style="display:flex;flex-direction:column;gap:10px"><div class="chips">${sevChip(f.severity)}<span class="cat">${esc(f.category)} · ${esc(f.owasp)}</span></div><h1 style="margin:0;font-size:30px;line-height:1.2">${esc(f.title)}</h1></div>
-    <div class="two"><div class="grow" style="display:flex;flex-direction:column;gap:20px" id="fixBody"><div class="card"><p class="small">Preparing the fix…</p></div></div>
-      <aside class="card side-col" style="display:flex;flex-direction:column;gap:18px"><h2 style="margin:0;font-size:18px">Fix status</h2>
-        <ol class="timeline" id="tl">${steps.map(([k, l]) => `<li data-step="${k}"><span class="dot"></span>${l}</li>`).join('')}</ol>
-        <a class="btn btn-line" id="pr" href="#" target="_blank" rel="noopener" hidden>View the pull request</a>
-        <div style="border-top:1px solid var(--line-2);padding-top:16px;display:flex;flex-direction:column;gap:8px"><span class="small">When verified, your score becomes</span>
-          <div style="display:flex;align-items:baseline;gap:10px"><span style="font-size:22px;font-weight:700;color:var(--crit)">${before}</span><span class="small">→</span><span style="font-size:30px;font-weight:700;color:var(--ok)">${Math.min(100, before + (WEIGHTS[f.severity] || 0))}</span></div></div>
-        <div id="nextBox"></div>
-      </aside></div>`);
-  let fix;
-  try { fix = await api.createFix(auditId, findingId); } catch (e) { document.getElementById('fixBody').innerHTML = '<div class="card"><p class="err" style="padding:0">The fix could not be created: ' + esc(e.message) + '</p></div>'; return; }
-  document.getElementById('fixBody').innerHTML = `
-    <section class="card" style="display:flex;flex-direction:column;gap:12px"><h2 style="margin:0;font-size:18px">What we will change</h2><p style="margin:0;font-size:16px;line-height:1.55">${esc(fix.plain_change)}</p><p class="small" style="font-size:15px">${esc(fix.reassurance)}</p></section>
-    <section class="card" style="display:flex;flex-direction:column;gap:12px"><div class="sec-head"><h2 style="font-size:18px">The code change</h2><span class="cat" style="font-size:13px">${esc(fix.file)}</span></div>
-      <div class="code diff" id="diff" hidden>${fix.diff.map(l => `<div>${esc(l)}</div>`).join('')}</div>
-      <button class="linkbtn" type="button" id="toggleDiff" aria-expanded="false" aria-controls="diff" style="align-self:flex-start">Show code</button></section>
-    <section class="card" style="display:flex;flex-direction:column;gap:12px"><h2 style="margin:0;font-size:18px">Safety checks: does your app still work?</h2>
-      <div class="checks">${fix.checks.map(c => `<div>${c.passed ? ICON_CHECK : '<span style="color:var(--crit);font-weight:700">!</span>'}${esc(c.label)}</div>`).join('')}</div></section>
-    <div id="verifiedBox"></div>`;
-  document.getElementById('toggleDiff').addEventListener('click', (e) => { const d = document.getElementById('diff'); d.hidden = !d.hidden; e.target.setAttribute('aria-expanded', !d.hidden); e.target.textContent = d.hidden ? 'Show code' : 'Hide code'; });
-  const pr = document.getElementById('pr');
-  function paint(fx) {
-    const idx = steps.findIndex(s => s[0] === fx.status);
-    document.querySelectorAll('#tl li').forEach((li, i) => { li.className = i < idx || fx.status === 'verified' ? 'done' : i === idx ? 'cur' : ''; });
-    if (fx.pr_url) { pr.href = fx.pr_url; pr.hidden = false; }
-    if (fx.status === 'verified') {
-      clearTimers();
-      document.getElementById('verifiedBox').innerHTML = `<div class="verified">${ICON_CHECK}Fixed and verified: the original attack no longer works.</div>`;
-      const nxt = others[0];
-      document.getElementById('nextBox').innerHTML = nxt ? `<a class="btn btn-dark" href="#/app/fix/${auditId}/${nxt.id}">Fix the next issue</a>` : `<a class="btn btn-dark" href="#/app/passport/${auditId}">See your security passport</a>`;
-    }
-  }
-  paint(fix);
-  if (fix.status !== 'verified') state.timers.push(setInterval(async () => { try { paint(await api.getFix(fix.fix_id)); } catch (e) {} }, CONFIG.POLL_MS));
-}
-
-/* 7 · Security passport */
-async function screenPassport(auditId) {
-  state.lastAuditId = auditId;
-  const r = await api.getReport(auditId);
-  const initial = Math.max(0, 100 - r.findings.reduce((s, f) => s + (WEIGHTS[f.severity] || 0), 0));
-  const score = computeScore(r), fixed = r.findings.filter(f => f.fix_status === 'verified'), open = openFindings(r);
-  const order = { critical: 0, high: 1, medium: 2, low: 3 };
-  $app.innerHTML = shell('passport', `<div class="main-head"><div><h1>Security passport</h1><p>Share it with a client, a prospect or an investor.</p></div>
-      <div class="actions"><button class="btn btn-line" id="share" type="button">Copy share link</button><button class="btn btn-dark" id="pdf" type="button">Download PDF</button></div></div>
-    <article class="card passport" id="pp">
-      <div class="pp-head"><div><p class="small" style="margin:0;font-size:14px">Security passport</p><h1>${esc(r.project)}</h1><p class="small" style="margin:0;font-size:15px">Audited on ${fmtDate(r.scanned_at)} · Reference: OWASP Top 10, selected checks${r.commit ? ' · commit ' + esc(r.commit) : ''}</p></div>${ring(score, 120)}</div>
-      <div class="kpis">
-        <div class="box"><span>Score</span><strong><span style="color:var(--crit)">${initial}</span> → <span style="color:${scoreTone(score)[1]}">${score}</span></strong></div>
-        <div class="box"><span>Issues found</span><strong>${r.findings.length}</strong></div>
-        <div class="box"><span>Fixed and verified</span><strong style="color:var(--ok)">${fixed.length}</strong></div>
-        <div class="box"><span>Still open</span><strong style="color:${open.length ? 'var(--med)' : 'var(--ok)'}">${open.length}</strong></div>
+  const open = findings.filter(isOpen), crit = open.filter(f => f.severity === 'critical').length;
+  const verified = projects.reduce((s, p) => s + p.fixes_verified, 0);
+  const urgent = open.filter(f => f.severity === 'critical' || f.severity === 'high').sort((a, b) => SEV_ORDER[a.severity] - SEV_ORDER[b.severity]);
+  const actions = urgent.map(f => ({ chip: sevChip(f.severity), title: f.title, why: f.project_id + ' · ' + f.impact, cta: `<a class="btn btn-lime btn-sm" href="#/app/fixes/${f.project_id}?select=${f.id}">Fix now</a>` }))
+    .concat(projects.filter(p => p.commits_since_scan).map(p => ({ chip: '<span class="chip" style="background:rgba(120,170,140,.18);color:var(--link)">Re-scan</span>', title: 'Re-scan ' + p.name, why: p.commits_since_scan + ' new commits since the last audit.', cta: `<button class="btn btn-mint btn-sm" type="button" data-rescan="${p.id}">Re-scan</button>` })))
+    .concat([{ chip: '<span class="chip" style="background:rgba(120,170,140,.18);color:var(--link)">Setup</span>', title: 'Turn on automatic re-scans', why: 'Audit every new version before it goes live.', cta: '<button class="btn btn-mint btn-sm" type="button" data-toast="Automatic re-scans turned on (mock)">Turn on</button>' }]);
+  const worst = projects.slice().sort((a, b) => a.score - b.score)[0];
+  const ifFixed = Math.max(0, 100 - worst.findings.filter(f => isOpen(f) && (f.severity === 'medium' || f.severity === 'low')).reduce((s, f) => s + WEIGHTS[f.severity], 0));
+  const inner = `<div class="page-head"><div><p class="eyebrow">Good afternoon</p><h1 class="serif h1">Overview</h1></div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px"><a class="btn" href="#/" style="font-weight:500">Quick audit</a><a class="btn btn-lime" href="#/deep">+ New project</a></div></div>
+    <form class="glass" id="ask" style="border-radius:24px;padding:8px 8px 8px 20px;display:flex;flex-wrap:wrap;align-items:center;gap:12px">
+      <span class="orb" style="width:26px;height:26px"></span><label for="askIn" class="sr-only">Ask about your security</label>
+      <input id="askIn" type="text" placeholder="Ask anything: why is ${esc(worst.name)} at ${worst.score}? what should I fix first?" style="flex:1 1 320px;min-width:0;height:48px;border:none;background:transparent;font-size:15px">
+      <button class="btn btn-mint" type="submit">Ask</button></form>
+    <div class="row">
+      <div style="flex:2 1 420px;display:flex;flex-direction:column;gap:18px">
+        <div class="row" style="gap:14px">
+          <div class="kpi glass lift"><span>Average score</span><strong class="serif">${avg}<span style="font-family:var(--sans);font-size:15px;color:var(--faint)"> /100</span></strong></div>
+          <div class="kpi glass lift"><span>Open critical issues</span><strong class="serif" style="color:${crit ? '#C42B30' : 'var(--ok)'}">${crit}</strong></div>
+          <div class="kpi glass lift"><span>Fixes verified</span><strong class="serif" style="color:var(--ok)">${verified}</strong></div>
+        </div>
+        <section class="glass card" style="display:flex;flex-direction:column;gap:4px">
+          <div class="f-top" style="align-items:baseline"><h2 class="h2">Recommended actions</h2><span class="muted" style="font-size:13px">Most urgent first</span></div>
+          ${actions.map(a => `<div class="action divider">${a.chip}<span style="flex:1 1 240px;display:flex;flex-direction:column;gap:2px"><strong style="font-size:15px;font-weight:600">${esc(a.title)}</strong><span class="muted" style="font-size:13px">${esc(a.why)}</span></span>${a.cta}</div>`).join('')}
+        </section>
       </div>
-      <section style="display:flex;flex-direction:column;gap:12px"><h2 style="margin:0;font-size:18px">Detail of checks</h2>
-        <div class="tbl" style="border:1px solid #E4E3DD;border-radius:10px"><table><thead><tr style="background:#F7F6F2"><th>Issue</th><th>Severity</th><th>Status</th></tr></thead><tbody>
-        ${r.findings.slice().sort((a, b) => order[a.severity] - order[b.severity]).map(f => `<tr><td>${esc(f.title)}</td><td style="font-weight:600;color:var(--${f.severity === 'critical' ? 'crit' : f.severity === 'high' ? 'high' : 'med'})">${SEV_LABEL[f.severity]}</td>
-          <td style="font-weight:600;color:${f.fix_status === 'verified' ? 'var(--ok)' : 'var(--muted)'}">${f.fix_status === 'verified' ? 'Fixed · verified ' + fmtDate(new Date().toISOString()) : 'Open'}</td></tr>`).join('')}
-        </tbody></table></div></section>
-      <section><h2 style="margin:0 0 8px;font-size:18px">How to read this</h2><p class="small" style="font-size:15px;margin:0">Each fixed issue was re-tested after the fix: the original attack no longer works. The score starts at 100 and loses 25 points per critical, 10 per high and 3 per medium issue still open.</p></section>
-      <p class="disclaimer">Audit performed on ${fmtDate(r.scanned_at)} against a selection of OWASP Top 10 checks. This report describes the state of the project at that date. It is not a guarantee of security and not a certification.</p>
+      <div style="flex:1 1 300px;display:flex;flex-direction:column;gap:18px">
+        <div class="insight lift">
+          <span class="glass-soft" style="align-self:flex-start;padding:6px 12px;border-radius:999px;font-size:13px">Insight</span>
+          <span class="serif" style="font-size:84px;line-height:.9;margin-top:auto">${worst.score}</span>
+          <p style="margin:0;font-size:20px;font-weight:600;line-height:1.25">${worst.counts.critical ? esc(worst.name) + ' exposes customer data right now.' : esc(worst.name) + ' is your lowest score.'}</p>
+          ${ifFixed > worst.score ? `<p style="margin:0;font-size:14px;line-height:1.5;color:var(--text-2)">Fixing the critical and high issues would bring it to ${ifFixed}.</p>` : ''}
+        </div>
+        <section class="glass card" style="display:flex;flex-direction:column;gap:10px"><h2 class="h2">Recent activity</h2>
+          ${[[worst.name + ': audit finished, ' + worst.findings.length + ' issues found', 'Today'], ['Account created', 'Today'], ['Passport of sales-landing shared', '3 days ago'], ['4 fixes verified on client-portal', '9 days ago']].map(([t, w]) => `<div class="divider" style="display:flex;justify-content:space-between;gap:10px;padding-top:10px;font-size:14px"><span>${esc(t)}</span><span class="muted" style="white-space:nowrap">${w}</span></div>`).join('')}
+        </section>
+      </div>
+    </div>
+    <section class="glass card stack">
+      <div class="f-top" style="align-items:center"><h2 class="h2">Projects</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-sm" type="button" id="rescanSel">Re-scan selected</button><a class="btn btn-sm" href="#/deep">+ Add project</a></div></div>
+      ${projectsTable(projects)}
+    </section>`;
+  $app.innerHTML = shell('dashboard', inner);
+  bindProjectsTable();
+  document.querySelectorAll('[data-rescan]').forEach(b => b.addEventListener('click', async () => { await api.rescan(b.dataset.rescan); toast('Re-scan started'); render(); }));
+  document.getElementById('ask').addEventListener('submit', e => { e.preventDefault(); toast('The assistant arrives in the next version'); /* TODO(backend): POST /assistant { question } */ });
+}
+
+/* 6c · Projects */
+async function screenProjects() {
+  const { projects } = await loadWorkspace();
+  const need = projects.filter(p => p.counts.critical || p.counts.high || p.commits_since_scan).length;
+  $app.innerHTML = shell('projects', `<div class="page-head"><div><p class="eyebrow">${projects.length} projects · ${need} need${need === 1 ? 's' : ''} action</p><h1 class="serif h1">Projects</h1></div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px"><a class="btn" href="#/" style="font-weight:500">Quick audit</a><a class="btn btn-lime" href="#/deep">+ New project</a></div></div>
+    <section class="glass card stack"><div class="f-top" style="align-items:center"><h2 class="h2">All projects</h2><button class="btn btn-sm" type="button" id="rescanSel">Re-scan selected</button></div>${projectsTable(projects)}</section>`);
+  bindProjectsTable();
+}
+
+/* 6b · Findings (inside the platform) */
+async function screenFindings(params) {
+  const { projects, findings } = await loadWorkspace();
+  const st = { project: params.get('project') || 'all', sev: params.get('sev') || 'all', dev: state.reportView === 'dev' };
+  const drawList = () => {
+    const rows = findings.filter(isOpen).filter(f => (st.project === 'all' || f.project_id === st.project) && (st.sev === 'all' || f.severity === st.sev)).sort((a, b) => SEV_ORDER[a.severity] - SEV_ORDER[b.severity]);
+    const chips = (list, key) => list.map(([v, l]) => `<button class="btn btn-sm ${st[key] === v ? 'btn-mint' : ''}" type="button" aria-pressed="${st[key] === v}" data-${key}="${v}">${l}</button>`).join('');
+    const sel = st.project === 'all' ? '' : st.project;
+    document.getElementById('fbody').innerHTML = `
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="muted" style="font-size:13px;margin-right:4px">Project</span>${chips([['all', 'All projects']].concat(projects.map(p => [p.id, p.name])), 'project')}
+        <span class="muted" style="font-size:13px;margin:0 4px 0 12px">Severity</span>${chips([['all', 'All'], ['critical', 'Critical'], ['high', 'High'], ['medium', 'Medium']], 'sev')}</div>
+      <div class="f-top" style="align-items:center"><span style="font-size:14px;color:var(--text-2)">${rows.length} open issue${rows.length === 1 ? '' : 's'}</span>
+        ${rows.length ? `<a class="btn btn-lime" href="#/app/fixes/${sel || rows[0].project_id}${sel ? '' : '?select=' + rows.filter(f => f.project_id === rows[0].project_id).map(f => f.id).join(',')}">Fix ${sel ? 'these issues' : 'issues in ' + esc(rows[0].project_id)}</a>` : ''}</div>
+      ${rows.length ? rows.map(f => `<article class="finding glass lift" style="border-radius:24px;padding:18px 22px;gap:18px"><div class="rail rail-${f.severity}"></div><div class="f-body" style="gap:8px">
+        <div class="f-top" style="align-items:center"><div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">${sevChip(f.severity)}<a class="tag glass-soft" href="#/app/findings?project=${f.project_id}" style="text-decoration:none;color:var(--link)">${esc(f.project_id)}</a><span class="mono muted" style="font-size:12px">${esc(f.found_at)}</span></div>
+          ${f.proof.confirmed ? '<span class="chip" style="background:rgba(200,242,74,.35);color:#2F5A1A">Confirmed by live test</span>' : ''}</div>
+        ${st.dev ? `<code class="mono" style="font-size:15px;font-weight:500">${esc(f.rule_id)}</code><span class="mono" style="font-size:13px;color:var(--link)">${esc(f.file)}${f.line ? ':' + f.line : ''} · ${esc(f.cwe)} · OWASP ${esc(f.owasp)}</span><p style="margin:0;font-size:14px;line-height:1.5">${esc(f.summary)}</p>`
+          : `<h3 style="margin:0;font-size:18px;font-weight:600">${esc(f.title)}</h3><p style="margin:0;font-size:15px;line-height:1.5">${esc(f.impact)}</p>`}
+        <div class="code" id="d-${f.id}" hidden style="padding:10px 0">${f.code.length ? f.code.map(l => `<div class="${l.hit ? 'hit' : ''}"><span class="ln">${l.n}</span>${esc(l.text)}</div>`).join('') : `<div>${esc(f.technical_detail)}</div>`}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px"><a class="btn btn-lime btn-sm" href="#/app/fixes/${f.project_id}?select=${f.id}">Fix this</a><button class="btn btn-sm" type="button" data-detail="${f.id}" aria-expanded="false" aria-controls="d-${f.id}">Details</button><button class="btn btn-sm" type="button" data-toast="Marked as false positive (mock)">Mark as false positive</button></div>
+      </div></article>`).join('') : '<div class="glass card"><p style="margin:0">No open issues match these filters. Pick another project or severity.</p></div>'}`;
+    document.querySelectorAll('[data-project]').forEach(b => b.addEventListener('click', () => { st.project = b.dataset.project; drawList(); }));
+    document.querySelectorAll('[data-sev]').forEach(b => b.addEventListener('click', () => { st.sev = b.dataset.sev; drawList(); }));
+    document.querySelectorAll('[data-detail]').forEach(b => b.addEventListener('click', () => { const d = document.getElementById('d-' + b.dataset.detail); d.hidden = !d.hidden; b.setAttribute('aria-expanded', !d.hidden); }));
+  };
+  $app.innerHTML = shell('findings', `<div class="page-head"><div><p class="eyebrow">All open issues across your projects</p><h1 class="serif h1">Findings</h1></div>
+    <div class="seg glass" role="group" aria-label="View"><button class="btn" type="button" id="vF" aria-pressed="${!st.dev}">Founder view</button><button class="btn" type="button" id="vD" aria-pressed="${st.dev}">Developer view</button></div></div>
+    <div id="fbody" style="display:flex;flex-direction:column;gap:16px"></div>`);
+  const setView = d => { st.dev = d; state.reportView = d ? 'dev' : 'founder'; document.getElementById('vF').setAttribute('aria-pressed', !d); document.getElementById('vD').setAttribute('aria-pressed', d); drawList(); };
+  document.getElementById('vF').addEventListener('click', () => setView(false));
+  document.getElementById('vD').addEventListener('click', () => setView(true));
+  drawList();
+}
+
+/* 7 · Fixes: select, fix now (batch with per-row progress), then deploy or download */
+async function screenFixes(projectId, select) {
+  const { projects } = await loadWorkspace();
+  const p = projects.find(x => x.id === projectId) || projects[0];
+  const open = p.findings.filter(isOpen).sort((a, b) => SEV_ORDER[a.severity] - SEV_ORDER[b.severity]);
+  const pre = select ? select.split(',') : open.filter(f => f.severity === 'critical' || f.severity === 'high').map(f => f.id);
+  const sel = {}; open.forEach(f => { sel[f.id] = pre.includes(f.id); });
+  let phase = 'select', batch = null, progress = {};
+  const stageLabel = { waiting: 'Waiting', writing: 'Writing the fix', checking: 'Preparing the change', attacking: 'Reviewing the fix', verifying: 'Verifying', verified: 'Fix ready for review', failed: 'Could not fix automatically' };
+  const before = computeScore(p.findings);
+  const preview = () => Math.max(0, 100 - open.filter(f => phase === 'select' ? !sel[f.id] : !(progress[f.id] && progress[f.id].progress >= 100)).reduce((s, f) => s + WEIGHTS[f.severity], 0) - p.findings.filter(f => f.fix_status === 'verified' && !open.includes(f) && false).length);
+  const draw = () => {
+    const ids = open.filter(f => sel[f.id]).map(f => f.id), locked = phase !== 'select', after = preview();
+    const done = ids.filter(id => progress[id] && progress[id].progress >= 100).length, t = scoreTone(after);
+    $app.innerHTML = shell('fixes', `<div class="page-head"><div><p class="eyebrow">${phase === 'select' ? 'Choose the issues to fix. Critical and high are selected for you.' : phase === 'fixing' ? 'The agent is fixing and re-testing each issue.' : 'Done. Choose how to put the fixed version live.'}</p><h1 class="serif h1">Fix ${esc(p.name)}</h1></div>
+        <div class="glass" style="display:flex;align-items:center;gap:14px;padding:12px 20px;border-radius:24px"><span class="muted" style="font-size:13px">Score</span><span class="serif" style="font-size:34px;line-height:1;color:#C42B30">${before}</span><span class="muted">→</span><span class="serif" style="font-size:46px;line-height:1;color:${after >= 80 ? 'var(--ok)' : after >= 60 ? 'var(--high)' : 'var(--crit)'}">${after}</span></div></div>
+      ${projects.length > 1 ? `<div style="display:flex;flex-wrap:wrap;gap:8px">${projects.map(x => `<a class="btn btn-sm ${x.id === p.id ? 'btn-mint' : ''}" href="#/app/fixes/${x.id}" ${x.id === p.id ? 'aria-current="page"' : ''}>${esc(x.name)}</a>`).join('')}</div>` : ''}
+      ${open.length || phase !== 'select' ? `<section class="glass" style="border-radius:30px;padding:10px">
+        <div class="f-top" style="align-items:center;padding:12px 14px 14px">
+          <label style="display:flex;align-items:center;gap:12px;min-height:44px;font-size:15px;font-weight:600"><input class="check" type="checkbox" id="all" ${ids.length === open.length && open.length ? 'checked' : ''} ${locked ? 'disabled' : ''}>Select all · ${open.length} issue${open.length === 1 ? '' : 's'} not fixed</label>
+          ${phase === 'select' ? `<button class="btn btn-lime btn-lg" type="button" id="go" ${ids.length ? '' : 'disabled'}>Fix now (${ids.length})</button>`
+            : phase === 'fixing' ? `<span style="display:flex;align-items:center;gap:10px;font-size:15px;font-weight:600"><span class="orb orb-live" style="width:22px;height:22px"></span>Fixing ${done} of ${ids.length}…</span>`
+            : `<span class="chip sev-fixed" style="font-size:14px;padding:8px 16px">All ${ids.length} fixes verified</span>`}
+        </div>
+        <ul style="margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px">
+          ${open.map(f => { const on = sel[f.id], pr = progress[f.id] || { progress: 0, stage: 'waiting' }; return `<li class="fix-row glass-soft ${locked && !on ? 'dim' : ''}">
+            <input class="check" type="checkbox" data-pick="${f.id}" ${on ? 'checked' : ''} ${locked ? 'disabled' : ''} aria-label="Select: ${esc(f.title)}" style="width:20px;height:20px">
+            <div style="flex:1 1 300px;min-width:0;display:flex;flex-direction:column;gap:6px"><div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">${sevChip(f.severity)}<strong style="font-size:16px;font-weight:600">${esc(f.title)}</strong></div><span class="mono muted" style="font-size:12px">${esc(f.file)}</span></div>
+            <div class="prog">${locked && on ? `<div style="display:flex;justify-content:space-between;gap:8px;font-size:13px"><span style="${pr.progress >= 100 ? 'color:var(--ok);font-weight:600' : 'font-weight:500'}">${stageLabel[pr.stage] || pr.stage}</span><span class="mono muted">${pr.progress}%</span></div>
+              <div class="bar ${pr.progress >= 100 ? 'done' : ''}" role="progressbar" aria-label="Fix progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pr.progress}"><div class="flow" style="width:${pr.progress}%"></div></div>`
+              : `<span class="muted" style="font-size:13px">${locked ? 'Not selected' : on ? 'Ready to fix' : 'Not selected'}</span>`}</div>
+          </li>`; }).join('')}
+        </ul></section>` : `<div class="glass card"><p style="margin:0">No open issues on ${esc(p.name)}. <a href="#/app/passport/${p.id}">Share the security passport</a>.</p></div>`}
+      ${phase === 'select' && open.length ? '<p class="muted" style="margin:0;padding:0 8px;font-size:14px;line-height:1.5">For each issue the agent writes the fix and prepares a pull request you review. Nothing is changed in your repository until you deploy and merge it.</p>' : ''}
+      ${phase === 'done' ? `<section style="display:flex;flex-direction:column;gap:16px"><h2 class="serif" style="margin:0;font-size:36px;line-height:1.05">Your fixed version is ready. Put it live.</h2>
+        <div class="row" style="gap:16px">
+          <div class="deploy insight" style="min-height:0"><div class="f-top" style="align-items:center"><strong style="font-size:18px">GitHub</strong><span class="chip glass-soft" style="color:#2F5A1A">Connected</span></div><span class="mono" style="font-size:13px;color:var(--text-2)">${esc(p.repo)} · main</span><span style="font-size:14px;line-height:1.45;color:var(--text-2)">One pull request with all ${ids.length} fixes. You review and merge it.</span><button class="btn btn-lime" style="margin-top:auto" type="button" id="deploy">Deploy to GitHub</button></div>
+          <div class="deploy glass lift"><strong style="font-size:18px">Other tools</strong><span class="muted" style="font-size:14px;line-height:1.45">Connect one to deploy from here.</span><div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:auto">${['GitLab', 'Bitbucket', 'Vercel'].map(x => `<button class="btn btn-sm" type="button" data-toast="${x} connection arrives in the next version">${x}</button>`).join('')}</div></div>
+          <div class="deploy glass lift"><strong style="font-size:18px">Download</strong><span class="muted" style="font-size:14px;line-height:1.45">The whole website with every fix applied, ready to deploy on your host.</span><button class="btn btn-mint" style="margin-top:auto" type="button" id="zipDl">Download fixed project (.zip)</button></div>
+        </div>
+        <a class="btn" href="#/app/passport/${p.id}" style="align-self:flex-start;font-weight:500">See the updated security passport</a></section>` : ''}`);
+    if (!locked) {
+      document.querySelectorAll('[data-pick]').forEach(c => c.addEventListener('change', () => { sel[c.dataset.pick] = c.checked; draw(); }));
+      const all = document.getElementById('all'); if (all) all.addEventListener('change', () => { open.forEach(f => sel[f.id] = all.checked); draw(); });
+      const goBtn = document.getElementById('go');
+      if (goBtn) goBtn.addEventListener('click', async () => {
+        goBtn.disabled = true;
+        try { batch = (await api.createFixBatch(p.id, ids)).batch_id; } catch (e) { toast('The fix could not start: ' + e.message); goBtn.disabled = false; return; }
+        phase = 'fixing'; draw();
+        const poll = async () => {
+          try {
+            const b = await api.getFixBatch(batch);
+            b.items.forEach(it => { progress[it.finding_id] = it; });
+            if (b.status === 'done') { clearTimers(); phase = 'done'; }
+            draw();
+          } catch (e) { /* keep polling */ }
+        };
+        state.timers.push(setInterval(poll, Math.min(CONFIG.POLL_MS, 300)));
+      });
+    }
+    const dep = document.getElementById('deploy');
+    if (dep) dep.addEventListener('click', async () => { dep.disabled = true; dep.textContent = 'Opening the pull request…'; const { pr_url } = await api.deployBatch(batch, 'github'); dep.textContent = 'Pull request opened'; toast('Pull request opened'); window.open(pr_url, '_blank', 'noopener'); });
+    const zip = document.getElementById('zipDl');
+    if (zip) zip.addEventListener('click', () => toast('ZIP download arrives in the next version — use Deploy to GitHub to open the pull request'));
+  };
+  draw();
+}
+
+/* 8 · Security passport */
+async function screenPassport(projectId) {
+  const { projects } = await loadWorkspace();
+  const p = projects.find(x => x.id === projectId) || projects[0];
+  const fs = p.findings.slice().sort((a, b) => SEV_ORDER[a.severity] - SEV_ORDER[b.severity]);
+  const init = initialScore(fs), score = p.score, fixed = fs.filter(f => !isOpen(f)), open = fs.filter(isOpen), v = verdict(score);
+  $app.innerHTML = shell('passport', `<div class="page-head"><div><p class="eyebrow">Share it with a client, a prospect or an investor</p><h1 class="serif h1">Security passport</h1></div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px" class="no-print"><button class="btn" style="font-weight:500" type="button" id="share">Copy share link</button><button class="btn btn-lime" type="button" id="pdf">Download PDF</button></div></div>
+    ${projects.length > 1 ? `<div class="no-print" style="display:flex;flex-wrap:wrap;gap:8px">${projects.map(x => `<a class="btn btn-sm ${x.id === p.id ? 'btn-mint' : ''}" href="#/app/passport/${x.id}">${esc(x.name)}</a>`).join('')}</div>` : ''}
+    <article class="glass" style="border-radius:36px;padding:clamp(24px,4vw,36px);display:flex;flex-direction:column;gap:28px">
+      <div class="f-top" style="align-items:center;gap:24px"><div style="display:flex;flex-direction:column;gap:8px">
+        <span class="mono muted" style="font-size:13px">Audited on ${fmtDate(today)} · OWASP Top 10, selected checks</span>
+        <h2 class="serif" style="margin:0;font-size:64px;line-height:.95">${esc(p.name)}</h2>
+        <span class="chip ${score >= 80 ? 'sev-fixed' : score >= 60 ? 'sev-high' : 'sev-critical'}" style="align-self:flex-start;font-size:13px;padding:6px 14px">${v.label}</span></div>${ring(score, 170, false)}</div>
+      <div class="row" style="gap:12px">
+        <div class="glass-soft" style="flex:1 1 150px;border-radius:22px;padding:18px"><span class="muted" style="font-size:13px">Score</span><div class="serif" style="font-size:34px;line-height:1"><span style="color:#C42B30">${init}</span> → <span style="color:${scoreTone(score)[1] === '#FFFFFF' ? '#C42B30' : 'var(--ok)'}">${score}</span></div></div>
+        <div class="glass-soft" style="flex:1 1 150px;border-radius:22px;padding:18px"><span class="muted" style="font-size:13px">Issues found</span><div class="serif" style="font-size:34px;line-height:1">${fs.length}</div></div>
+        <div class="glass-soft" style="flex:1 1 150px;border-radius:22px;padding:18px"><span class="muted" style="font-size:13px">Fixed and verified</span><div class="serif" style="font-size:34px;line-height:1;color:var(--ok)">${fixed.length}</div></div>
+        <div class="glass-soft" style="flex:1 1 150px;border-radius:22px;padding:18px"><span class="muted" style="font-size:13px">Still open</span><div class="serif" style="font-size:34px;line-height:1;color:var(--med)">${open.length}</div></div>
+      </div>
+      <section><h3 style="margin:0 0 8px;font-size:18px;font-weight:600">Detail of checks</h3>
+        ${fs.length ? fs.map(f => `<div class="divider" style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:14px 4px"><span style="flex:1 1 260px;font-size:15px">${esc(f.title)}</span><span style="flex:0 0 90px;font-size:14px;font-weight:600;color:var(--${f.severity === 'critical' ? 'crit' : f.severity === 'high' ? 'high' : 'med'})">${SEV_LABEL[f.severity]}</span><span class="chip ${isOpen(f) ? 'sev-low' : 'sev-fixed'}" style="font-size:13px;padding:5px 12px">${isOpen(f) ? 'Open' : 'Fixed · verified'}</span></div>`).join('') : '<p class="muted">No issues found.</p>'}
+      </section>
+      <p style="margin:0;font-size:14px;line-height:1.55;color:var(--muted)">Each fixed issue was re-tested after the fix: the original attack no longer works. The score starts at 100 and loses 25 points per critical, 10 per high and 3 per medium issue still open.</p>
+      <p class="divider muted" style="margin:0;padding-top:18px;font-size:12px;line-height:1.55">Audit performed on ${fmtDate(today)} against a selection of OWASP Top 10 checks. This report describes the state of the project at that date. It is not a guarantee of security and not a certification.</p>
     </article>`);
   document.getElementById('share').addEventListener('click', async () => {
-    // TODO(backend): create a public read-only passport URL, e.g. POST /audits/:id/passport/share -> { url }
-    const url = location.origin + location.pathname + '#/app/passport/' + auditId;
+    const { url } = await api.sharePassport(p.id);
     try { await navigator.clipboard.writeText(url); toast('Share link copied'); } catch (e) { toast(url); }
   });
-  // TODO(backend): replace with a server-generated PDF. window.print() is a stand-in.
+  // TODO(backend): replace with GET /passports/:projectId/pdf. window.print() is a stand-in (print styles hide the sidebar).
   document.getElementById('pdf').addEventListener('click', () => window.print());
 }
 
-render();
+(async () => { try { const r = await api.me(); state.user = r && r.user ? r.user : null; } catch (e) {} render(); })();
 </script>
 </body>
 </html>

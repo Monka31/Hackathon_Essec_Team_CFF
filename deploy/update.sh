@@ -8,7 +8,10 @@ cd /opt/app/repo
 git pull --ff-only || true
 docker build -t vibeaudit:latest .
 docker rm -f vibeaudit 2>/dev/null || true
+# volume persistant pour la base SQLite et l'historique (survit aux redéploiements)
+mkdir -p /opt/app/data && chmod 777 /opt/app/data
 docker run -d --name vibeaudit --restart unless-stopped --env-file .env \
+  -v /opt/app/data:/data \
   -p 80:8000 --memory 3g --pids-limit 512 vibeaudit:latest
 sleep 5
 curl -fs http://127.0.0.1/api/health && echo " <- la plateforme répond (mise à jour OK)"

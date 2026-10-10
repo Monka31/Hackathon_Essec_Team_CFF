@@ -60,6 +60,9 @@ class Job:
     counts: Dict[str, int] = field(default_factory=dict)
     has_report: bool = False
     finished_at: Optional[str] = None
+    user_db_id: Optional[int] = None
+    project_id: Optional[str] = None
+    project_name: Optional[str] = None
 
     def public(self) -> Dict[str, Any]:
         return asdict(self)
@@ -102,11 +105,19 @@ class JobStore:
 
     # --- cycle de vie ---
     def create(self, repo_url: Optional[str], app_url: Optional[str], github_token: Optional[str],
-               client_ip: str, consent: bool, supabase_advisor: Optional[str] = None) -> Job:
+               client_ip: str, consent: bool, supabase_advisor: Optional[str] = None,
+               user_db_id: Optional[int] = None, project_id: Optional[str] = None,
+               project_name: Optional[str] = None, local_root: Optional[str] = None) -> Job:
+        from . import adapter, db
         job = Job(id=secrets.token_urlsafe(9), repo_url=repo_url, app_url=app_url, created_at=_now())
+        job.user_db_id = user_db_id
+        job.project_id = project_id or adapter.project_id_for(repo_url, app_url or (local_root and "upload"))
+        job.project_name = project_name or adapter.project_name_for(repo_url, app_url or (local_root and "upload"))
         steps = []
         if repo_url:
             steps.append("clone")
+            steps += list(SCANNERS)
+        elif local_root:
             steps += list(SCANNERS)
         if app_url:
             steps += list(URL_SCANNERS)
@@ -122,10 +133,15 @@ class JobStore:
         with self.lock:
             self.jobs[job.id] = job
         self.save(job)
+        try:
+            db.save_audit(job.id, user_db_id, job.project_id, job.project_name,
+                          repo_url, app_url, None, "running")
+        except Exception:
+            pass
         audit_log("job_created", job=job.id, ip=client_ip, repo=repo_url, url=app_url,
                   owner_consent=consent, private_repo_token=bool(github_token),
-                  supabase_paste=bool(supabase_advisor))
-        self.pool.submit(self._run, job, github_token, supabase_advisor)
+                  supabase_paste=bool(supabase_advisor), user=user_db_id)
+        self.pool.submit(self._run, job, github_token, supabase_advisor, local_root)
         return job
 
     def _step(self, job: Job, name: str, status: str, message: str = "") -> None:
@@ -174,7 +190,8 @@ class JobStore:
             job.score, job.grade, job.counts = report["score"], report["grade"], report["counts"]
         self.save(job)
 
-    def _run(self, job: Job, github_token: Optional[str], supabase_advisor: Optional[str] = None) -> None:
+    def _run(self, job: Job, github_token: Optional[str], supabase_advisor: Optional[str] = None,
+             local_root: Optional[str] = None) -> None:
         job.status = "running"
         self.save(job)
         workdir = None
@@ -182,6 +199,18 @@ class JobStore:
         repo_ok = False
         context = {"url_appli": job.app_url}
         try:
+            if local_root and not job.repo_url:
+                # Audit profond à partir d'un ZIP déjà décompressé : pas de clonage.
+                root = Path(local_root)
+                self._step(job, "semgrep", "running", "analyse du code")
+                try:
+                    runs += run_repo_scanners(root, progress=lambda n, s, m: self._step(job, n, s, m))
+                    context = project_context(root, job.app_url)
+                    repo_ok = True
+                except Exception as se:
+                    self._step(job, "semgrep", "error", f"analyse du code impossible : {str(se)[:150]}")
+                finally:
+                    shutil.rmtree(local_root, ignore_errors=True)
             if job.repo_url:
                 # Un clonage qui échoue (repo privé, trop gros, lien invalide) ne doit JAMAIS
                 # faire échouer tout l'audit : on dégrade proprement et on continue avec l'URL + Supabase.
@@ -241,6 +270,12 @@ class JobStore:
             self._step(job, "report", "ok", "rapport prêt" + (" (le scan Snyk API & Web continue)" if dast_pending else ""))
             job.status, job.finished_at = "done", _now()
             self.save(job)
+            try:
+                from . import db
+                db.save_audit(job.id, job.user_db_id, job.project_id, job.project_name,
+                              job.repo_url, job.app_url, job.score, "done")
+            except Exception:
+                pass
             audit_log("job_done", job=job.id, score=job.score)
 
             if dast_pending:
@@ -253,10 +288,18 @@ class JobStore:
                     s["status"] = "skipped"
             job.log.append(f"Erreur : {msg[:400]}")
             self.save(job)
+            try:
+                from . import db
+                db.save_audit(job.id, job.user_db_id, job.project_id, job.project_name,
+                              job.repo_url, job.app_url, None, "error")
+            except Exception:
+                pass
             audit_log("job_error", job=job.id, error=msg[:300], trace=_redact_token(traceback.format_exc()[-800:], github_token))
         finally:
             if workdir:
                 shutil.rmtree(workdir, ignore_errors=True)
+            if local_root:
+                shutil.rmtree(local_root, ignore_errors=True)
 
     def _run_dast(self, job: Job, runs, context=None) -> None:
         from ..scanners import snyk_dast
