@@ -20,7 +20,39 @@ CATEGORY_EN = {"code": "Code issue", "dependency": "Vulnerable component", "secr
                "config": "Security misconfiguration", "web": "Online app"}
 LAYER = {"code": "application", "dependency": "supply chain", "secret": "frontend",
          "config": "configuration", "web": "online app"}
-OWASP = {"code": "A03", "dependency": "A06", "secret": "A07", "config": "A05", "web": "A05"}
+
+# --- OWASP Top 10 (2021) : noms complets + correspondance par règle ---
+OWASP_NAMES = {
+    "A01": "Broken Access Control", "A02": "Cryptographic Failures", "A03": "Injection",
+    "A04": "Insecure Design", "A05": "Security Misconfiguration",
+    "A06": "Vulnerable and Outdated Components", "A07": "Identification and Authentication Failures",
+    "A08": "Software and Data Integrity Failures", "A09": "Security Logging and Monitoring Failures",
+    "A10": "Server-Side Request Forgery (SSRF)",
+}
+RULE_OWASP = [
+    ("rls", "A01"), ("row level security", "A01"), ("access-control", "A01"), ("access control", "A01"),
+    ("idor", "A01"), ("authoriz", "A01"), ("open-redirect", "A01"), ("path-traversal", "A01"),
+    ("missing-auth", "A07"), ("missing authentication", "A07"), ("no-auth", "A07"), ("session", "A07"),
+    ("password", "A07"), ("auth", "A07"),
+    ("secret", "A07"), ("hardcoded", "A07"), ("jwt", "A07"), ("api-key", "A07"), ("token", "A07"),
+    ("crypto", "A02"), ("tls", "A02"), ("cipher", "A02"), ("hash", "A02"),
+    ("sql", "A03"), ("injection", "A03"), ("xss", "A03"), ("eval", "A03"), ("command", "A03"), ("template", "A03"),
+    ("header", "A05"), ("cors", "A05"), ("misconfig", "A05"), ("debug", "A05"), ("cookie", "A05"),
+    ("dependency", "A06"), ("vulnerable", "A06"), ("outdated", "A06"), ("cve", "A06"), ("npm", "A06"),
+    ("deserial", "A08"), ("integrity", "A08"), ("supply", "A08"),
+    ("log", "A09"), ("monitor", "A09"),
+    ("ssrf", "A10"),
+]
+CAT_OWASP = {"code": "A03", "dependency": "A06", "secret": "A07", "config": "A05", "web": "A05"}
+
+
+def owasp_for(rule_id: str, category: str) -> str:
+    r = (rule_id or "").lower()
+    for key, code in RULE_OWASP:
+        if key in r:
+            return f"{code} {OWASP_NAMES[code]}"
+    code = CAT_OWASP.get(category, "A05")
+    return f"{code} {OWASP_NAMES[code]}"
 
 _SNIP = re.compile(r"^(>?)\s*(\d+)\s*\|\s?(.*)$")
 
@@ -83,7 +115,7 @@ def _finding(f: Dict[str, Any], project_id: str, found_at: str) -> Dict[str, Any
         "who_can_exploit": f.get("attack_scenario") or "An attacker able to reach this part of your app.",
         "rule_id": (f.get("evidence") or [{}])[0].get("rule_id") or cat,
         "category": CATEGORY_EN.get(cat, cat),
-        "owasp": OWASP.get(cat, ""),
+        "owasp": owasp_for((f.get("evidence") or [{}])[0].get("rule_id") or "", cat),
         "cwe": ", ".join(f.get("cwe") or []) or "n/a",
         "layer": LAYER.get(cat, cat),
         "confidence": CONF_MAP.get(f.get("confidence") or "", "medium"),
