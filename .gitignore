@@ -2,28 +2,21 @@
 .env
 .env.*
 !.env.example
-<<<<<<< HEAD
-=======
 *.pem
 *.key
->>>>>>> 0d68ab7efded46cfdb2fc95709906eeddf996150
 
 # Python
 __pycache__/
 *.pyc
 .venv/
 venv/
-<<<<<<< HEAD
+.pytest_cache/
 
 # Rapports générés (peuvent contenir des extraits de code audité)
 rapport*.html
 rapport*.json
 reports/
-
-# macOS
-.DS_Store
-=======
-.pytest_cache/
+data/
 
 # Node
 node_modules/
@@ -37,4 +30,3 @@ npm-debug.log*
 Thumbs.db
 .vscode/
 .idea/
->>>>>>> 0d68ab7efded46cfdb2fc95709906eeddf996150

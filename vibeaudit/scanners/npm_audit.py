@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import List
 
@@ -21,16 +22,38 @@ def scan(root: Path, timeout: int = 300) -> List[Finding]:
 
     # npm audit renvoie 1 quand il trouve des failles
     proc = run_cmd(["npm", "audit", "--json"], cwd=root, timeout=timeout, ok_codes=(0, 1))
+    if not (proc.stdout or "").strip():
+        raise ScannerError("npm audit n'a rien renvoyé (registre npm injoignable ?)")
     try:
-        data = json.loads(proc.stdout or "{}")
+        data = json.loads(proc.stdout)
     except json.JSONDecodeError:
         raise ScannerError("sortie JSON illisible")
     if "error" in data:
         raise ScannerError(str(data["error"].get("summary", data["error"]))[:300])
 
+    vulns = data.get("vulnerabilities") or {}
+    # NPM_AUDIT_MODE=direct : une ligne par dépendance directe (celle que le dev doit mettre à jour),
+    # avec les failles des sous-dépendances regroupées dedans. "all" (défaut) : une ligne par paquet.
+    direct_mode = os.getenv("NPM_AUDIT_MODE", "all") == "direct"
+
+    def collect(name, seen):
+        # Toutes les failles (avis) d'un paquet et de ses sous-dépendances vulnérables
+        if name in seen or name not in vulns:
+            return []
+        seen.add(name)
+        out = []
+        for v in vulns[name].get("via", []):
+            out += [v] if isinstance(v, dict) else collect(v, seen)
+        return out
+
     findings: List[Finding] = []
-    for name, vuln in (data.get("vulnerabilities") or {}).items():
-        advisories = [v for v in vuln.get("via", []) if isinstance(v, dict)]
+    for name, vuln in vulns.items():
+        if direct_mode and not vuln.get("isDirect"):
+            continue
+        if direct_mode:
+            advisories = list({a.get("url") or a.get("title"): a for a in collect(name, set())}.values())
+        else:
+            advisories = [v for v in vuln.get("via", []) if isinstance(v, dict)]
         via_pkgs = [v for v in vuln.get("via", []) if isinstance(v, str)]
         titles = [a.get("title", "") for a in advisories]
         cwe = sorted({c for a in advisories for c in (a.get("cwe") or [])})

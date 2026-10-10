@@ -20,6 +20,7 @@ CATEGORIES = {
     "dependency": "Dépendance",
     "secret": "Secret exposé",
     "config": "Configuration",
+    "web": "Appli en ligne",
 }
 
 # Les 4 niveaux d'explication, remplis par l'IA au module 2
@@ -91,6 +92,14 @@ class Finding:
         d["severity_label"] = SEVERITY_LABELS_FR.get(self.severity, self.severity)
         d["category_label"] = CATEGORIES.get(self.category, self.category)
         return d
+
+
+class FindingList(list):
+    """Liste de failles + une note pour le rapport (ex : nombre de fichiers analysés)."""
+
+    def __init__(self, items=(), note: str = ""):
+        super().__init__(items)
+        self.note = note
 
 
 @dataclass

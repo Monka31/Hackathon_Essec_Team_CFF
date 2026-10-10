@@ -5,23 +5,29 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from .. import __version__
-from ..scanners import LABELS, SCANNERS, gitleaks
+from ..scanners import LABELS, SCANNERS, URL_SCANNERS, gitleaks
 from ..scanners.base import ScannerError, ScannerSkipped
 from .merge import merge_findings
 from .models import Finding, ScannerRun
 from .redact import Redactor
 from .score import PENALTIES, compute_score, count_by_severity, grade
 
+Progress = Optional[Callable[[str, str, str], None]]  # (scanner, statut, message)
 
-def _run_one(name: str, root: Path) -> ScannerRun:
+
+def _run_one(name: str, fn: Callable[[], List[Finding]], progress: Progress = None) -> ScannerRun:
     run = ScannerRun(name=name)
+    if progress:
+        progress(name, "running", "en cours")
     t0 = time.time()
     try:
-        run.findings = SCANNERS[name](root)
-        run.message = f"{len(run.findings)} résultat(s)"
+        result = fn()
+        run.findings = list(result)
+        note = getattr(result, "note", "")
+        run.message = f"{len(run.findings)} résultat(s)" + (f", {note}" if note else "")
     except ScannerSkipped as e:
         run.status, run.message = "skipped", str(e)
     except ScannerError as e:
@@ -29,16 +35,27 @@ def _run_one(name: str, root: Path) -> ScannerRun:
     except Exception as e:  # un scanner qui plante ne bloque jamais les autres (choix G)
         run.status, run.message = "error", f"{type(e).__name__}: {e}"[:300]
     run.duration_s = time.time() - t0
+    if progress:
+        progress(name, run.status, run.message)
     return run
 
 
-def audit(target: Path, only: Optional[Iterable[str]] = None, skip: Optional[Iterable[str]] = None) -> Dict[str, Any]:
-    root = target.resolve()
-    names = [n for n in SCANNERS if (not only or n in only) and (not skip or n not in skip)]
+def selected(names: Iterable[str], only=None, skip=None) -> List[str]:
+    return [n for n in names if (not only or n in only) and (not skip or n not in skip)]
 
+
+def run_repo_scanners(root: Path, only=None, skip=None, progress: Progress = None) -> List[ScannerRun]:
+    names = selected(SCANNERS, only, skip)
     with ThreadPoolExecutor(max_workers=len(names) or 1) as pool:
-        runs: List[ScannerRun] = list(pool.map(lambda n: _run_one(n, root), names))
+        return list(pool.map(lambda n: _run_one(n, lambda: SCANNERS[n](root), progress), names))
 
+
+def run_url_scanners(url: str, only=None, skip=None, progress: Progress = None) -> List[ScannerRun]:
+    names = selected(URL_SCANNERS, only, skip)
+    return [_run_one(n, lambda n=n: URL_SCANNERS[n](url), progress) for n in names]
+
+
+def build_report(runs: List[ScannerRun], meta: Dict[str, Any]) -> Dict[str, Any]:
     all_findings: List[Finding] = [f for r in runs for f in r.findings]
 
     # Masquage des secrets partout : extraits, descriptions, preuves brutes (choix F)
@@ -52,12 +69,13 @@ def audit(target: Path, only: Optional[Iterable[str]] = None, skip: Optional[Ite
 
     findings = merge_findings(all_findings)
     score = compute_score(findings)
-
-    return {
+    report = {
         "tool": "vibeaudit",
         "version": __version__,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "target": root.name,
+        "target": meta.get("target", ""),
+        "repo_url": meta.get("repo_url"),
+        "app_url": meta.get("app_url"),
         "score": score,
         "grade": grade(score),
         "score_rule": PENALTIES,
@@ -66,4 +84,19 @@ def audit(target: Path, only: Optional[Iterable[str]] = None, skip: Optional[Ite
         "raw_total": len(all_findings),
         "scanners": [dict(r.to_dict(), label=LABELS.get(r.name, r.name)) for r in runs],
         "findings": [f.to_dict() for f in findings],
+        "_findings": findings,  # objets, retirés avant écriture
     }
+    return report
+
+
+def audit(target: Optional[Path] = None, url: Optional[str] = None, only=None, skip=None,
+          progress: Progress = None) -> Dict[str, Any]:
+    """Audit complet en ligne de commande (dossier local et/ou URL)."""
+    runs: List[ScannerRun] = []
+    if target:
+        runs += run_repo_scanners(target.resolve(), only, skip, progress)
+    if url:
+        runs += run_url_scanners(url, only, skip, progress)
+    report = build_report(runs, {"target": target.resolve().name if target else url, "app_url": url})
+    report.pop("_findings", None)
+    return report

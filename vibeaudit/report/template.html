@@ -51,6 +51,15 @@
   .filters button { border: 1px solid var(--line); background: #fff; border-radius: 99px; padding: 4px 12px; font-size: 13px; cursor: pointer; }
   .filters button.on { background: var(--text); color: #fff; }
   .scroll { overflow-x: auto; }
+  .ai-summary { border-left: 5px solid #6741d9; }
+  .ai-summary h2 { margin-top: 0; }
+  .ai-tag { font-size: 12px; padding: 2px 8px; border-radius: 99px; white-space: nowrap; font-weight: 600; }
+  .v-confirmed { background: #fdecea; color: var(--critical); } .v-likely { background: #fff4e5; color: #8a5300; }
+  .v-false_positive_suspected { background: #e7f5ff; color: #1c5d99; }
+  .c-tag { background: #f1edfd; color: #5135a8; }
+  .inject { background: #fff0f6; color: #a61e4d; border-radius: 6px; padding: 8px 10px; font-size: 14px; margin: 8px 0; font-weight: 600; }
+  .ai-box { background: #f8f7fd; border-radius: 6px; padding: 8px 10px; font-size: 14px; margin: 8px 0; }
+  .ai-box ol { margin: 4px 0 0 18px; padding: 0; }
   .summary > *, .finding { min-width: 0; }
   pre { max-width: 100%; white-space: pre; }
   @media (max-width: 640px) { .summary { grid-template-columns: 1fr; } .counts { grid-template-columns: repeat(2, 1fr); } }
@@ -59,7 +68,12 @@
 <body>
 <main>
   <h1>Audit de sécurité : {{ r.target }}</h1>
-  <div class="muted">Généré le {{ r.generated_at }} par {{ r.tool }} v{{ r.version }}. Audit à une date donnée, pas une garantie.</div>
+  <div class="muted">
+    {% if r.repo_url %}Repo : {{ r.repo_url }}<br>{% endif %}
+    {% if r.app_url %}Site : {{ r.app_url }}<br>{% endif %}
+    Généré le {{ r.generated_at }} par {{ r.tool }} v{{ r.version }}. Audit à une date donnée, pas une garantie.
+    {% if r.complete is defined and not r.complete %}<br><b>Rapport partiel : le scan Snyk API &amp; Web est encore en cours.</b>{% endif %}
+  </div>
 
   <section class="summary">
     <div class="card score">
@@ -80,6 +94,17 @@
     </div>
   </section>
 
+  {% if r.ai_summary %}
+  <section class="card ai-summary" style="margin-top:16px">
+    <h2>Résumé de l'IA</h2>
+    <div class="desc">{{ r.ai_summary.summary }}</div>
+    {% if r.ai_summary.priorities %}<b>À faire en priorité :</b><ol>{% for p in r.ai_summary.priorities %}<li>{{ p }}</li>{% endfor %}</ol>{% endif %}
+    <div class="muted">Avis généré par l'IA à partir des seuls résultats des scanners. À valider par un humain.</div>
+  </section>
+  {% elif r.ai %}
+  <div class="card muted" style="margin-top:16px">Explications IA : {{ r.ai.message }}</div>
+  {% endif %}
+
   <h2>Scanners</h2>
   <div class="card scroll">
     <table>
@@ -92,6 +117,11 @@
         <td>{{ s.duration_s }} s</td>
       </tr>
       {% endfor %}
+      {% if r.ai %}
+      <tr><td>IA ({{ r.ai.model or r.ai.provider or 'Claude' }})</td>
+        <td class="st-{{ r.ai.status }}">{{ {'ok':'OK','skipped':'Ignoré','error':'Erreur'}.get(r.ai.status, r.ai.status) }}</td>
+        <td>{{ r.ai.message }}</td><td></td></tr>
+      {% endif %}
     </table>
   </div>
 
@@ -110,12 +140,22 @@
       <span class="badge sev-{{ f.severity }}">{{ f.severity_label }}</span>
       <span class="tag">{{ f.category_label }}</span>
       <span class="f-title">{{ f.title }}</span>
+      {% if f.ai_verdict %}<span class="ai-tag v-{{ f.ai_verdict }}">IA : {{ {'confirmed':'faille confirmée','likely':'faille probable','false_positive_suspected':'faux positif probable'}[f.ai_verdict] }}</span>{% endif %}
+      {% if f.confidence %}<span class="ai-tag c-tag">confiance {{ f.confidence }}</span>{% endif %}
     </div>
     <div class="loc">{{ f.file or '' }}{% if f.line %}:{{ f.line }}{% endif %}{% if f.cwe %} · {{ f.cwe[:5] | join(', ') }}{% if f.cwe|length > 5 %} +{{ f.cwe|length - 5 }}{% endif %}{% endif %} · trouvé par : {{ f.sources | join(', ') }}{% if f.sources|length > 1 %} (recoupé){% endif %}</div>
 
     {% if f.snippet %}<pre>{{ f.snippet }}</pre>{% endif %}
     {% if f.description %}{% set dl = f.description.split('\n') %}<div class="desc">{{ dl[:6] | join('\n') }}</div>{% if dl|length > 6 %}<details><summary>Voir les {{ dl|length - 6 }} lignes suivantes</summary><div class="desc">{{ dl[6:] | join('\n') }}</div></details>{% endif %}{% endif %}
-    {% if f.fix_hint %}<div class="fix"><b>Piste de correction :</b> {{ f.fix_hint }}</div>{% endif %}
+    {% if f.prompt_injection_detected %}<div class="inject">Tentative de manipulation de l'IA détectée dans le projet : {{ f.injection_note }}</div>{% endif %}
+    {% if f.fix_hint %}<div class="fix"><b>Piste de correction (scanner) :</b> {{ f.fix_hint }}</div>{% endif %}
+    {% if f.attack_scenario or f.fix_steps %}
+    <div class="ai-box">
+      {% if f.attack_scenario %}<b>Scénario d'attaque (IA) :</b> {{ f.attack_scenario }}<br>{% endif %}
+      {% if f.fix_steps %}<b>Correction pas à pas (IA) :</b><ol>{% for st in f.fix_steps %}<li>{{ st }}</li>{% endfor %}</ol>{% endif %}
+      {% if f.confidence_reason %}<div class="muted" style="margin-top:4px">Confiance {{ f.confidence }} : {{ f.confidence_reason }}</div>{% endif %}
+    </div>
+    {% endif %}
 
     <div class="levels" data-id="{{ f.id }}">
       <div class="tabs" role="tablist">
@@ -123,7 +163,7 @@
       </div>
       {% for lvl in levels %}
       <div class="panel" data-lvl="{{ lvl }}" {% if not loop.first %}hidden{% endif %}>
-        {%- if f.explanations.get(lvl) %}{{ f.explanations[lvl] }}{% else %}<span class="pending">Explication {{ level_labels[lvl] | lower }} : générée par l'IA au module 2.</span>{% endif -%}
+        {%- if f.explanations.get(lvl) %}{{ f.explanations[lvl] }}{% else %}<span class="pending">{% if f.ai_error %}Explication IA en échec pour cette faille : {{ f.ai_error }}{% elif r.ai and r.ai.status != 'ok' %}Explication IA indisponible : {{ r.ai.message }}{% elif r.ai %}Non expliquée (faible gravité, hors limite){% else %}Explication IA en cours de génération : recharger la page dans une minute.{% endif %}</span>{% endif -%}
       </div>
       {% endfor %}
     </div>

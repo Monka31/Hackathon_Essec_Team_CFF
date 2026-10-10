@@ -1,9 +1,20 @@
-<<<<<<< HEAD
-# vibeaudit (nom provisoire)
+# Hackathon Essec - Team CFF
 
-Audit de sécurité des projets vibe-codés : on scanne le code, les dépendances, les secrets et la configuration de la base, puis on produit un rapport avec un score sur 100.
+Projet réalisé lors de **Secure Horizons** (UTOPIA x KRYPTOSPHERE x ESSEC MetaLab), ESSEC Cergy, 10 et 11 octobre 2026.
 
-Projet de la Team CFF, hackathon Secure Horizons (ESSEC, octobre 2026), Track 2.
+Track 2 : Defenders Augmented
+
+## Problème
+
+A compléter.
+
+## Solution
+
+**vibeaudit** (nom provisoire) : audit de sécurité des projets vibe-codés. On colle le lien GitHub et l'URL du site, la plateforme scanne le code, les dépendances, les secrets, la base et l'appli en ligne, puis l'IA explique chaque faille en 4 niveaux et donne un score sur 100.
+
+## Démo
+
+A compléter (scénario d'attaque, puis comment notre solution la bloque).
 
 ## Installation (une fois)
 
@@ -19,10 +30,19 @@ npm install -g snyk && snyk auth
 
 ## Utilisation
 
+**Plateforme web** (formulaire lien GitHub + URL) :
 ```
 source .venv/bin/activate
-python -m vibeaudit scan ~/chemin/vers/le/projet --out reports/rapport.html
+python -m vibeaudit serve
 ```
+puis ouvrir http://127.0.0.1:8000
+
+**Ligne de commande** :
+```
+python -m vibeaudit scan ~/chemin/vers/le/projet --url https://mon-appli.com --out reports/rapport.html
+```
+
+Mise en ligne sur AWS : voir `deploy/README-AWS.md`.
 
 Options :
 - `--skip snyk_code,snyk_deps` pour économiser le quota Snyk
@@ -41,6 +61,8 @@ Le JSON a la même structure que le HTML : c'est lui que l'interface lit.
 | Gitleaks | secrets dans le code et l'historique git | `brew install gitleaks` |
 | npm audit | dépendances vulnérables | `package-lock.json` |
 | Supabase Advisor | tables sans RLS, fonctions exposées... | token + ref dans `.env` |
+| Tests passifs (URL) | HTTPS, en-têtes de sécurité, .env ou .git exposés, clés dans le JavaScript | aucun |
+| Snyk API & Web (URL) | scan dynamique (DAST) de l'appli en ligne | `PROBELY_API_KEY` + domaine vérifié |
 
 Un scanner absent ou en échec est signalé dans le rapport, sans bloquer les autres.
 
@@ -51,45 +73,16 @@ vibeaudit/
   scanners/   un fichier par outil, chacun traduit sa sortie au format commun
   core/       format commun (models), fusion des doublons, score, masquage des secrets
   report/     rapport HTML (template) et JSON
-  llm/        module 2 : explications en 4 niveaux par l'IA (à venir)
+  web/        plateforme : formulaire, suivi des analyses, clonage sécurisé, journal
+  llm/        explications en 4 niveaux par l'IA (à venir)
+deploy/       Dockerfile et scripts pour EC2
+frontend/     interface (Thomas)
+demo/         scénario de démo pour le pitch
+docs/         schéma d'architecture, slides
 ```
 
 Règles du score : 100, moins 25 par faille critique, 10 par haute, 3 par moyenne, 1 par basse (plancher 0).
 Tout secret est critique. Les secrets sont masqués dans les rapports (4 premiers caractères seulement).
-=======
-# Hackathon Essec - Team CFF
-
-Projet réalisé lors de **Secure Horizons** (UTOPIA x KRYPTOSPHERE x ESSEC MetaLab), ESSEC Cergy, 10 et 11 octobre 2026.
-
-Track 2 : Defenders Augmented
-
-## Problème
-
-A compléter.
-
-## Solution
-
-A compléter.
-
-## Démo
-
-A compléter (scénario d'attaque, puis comment notre solution la bloque).
-
-## Lancer le projet
-
-```bash
-cp .env.example .env   # puis renseigner les clés
-./start.sh
-```
-
-## Structure
-
-```
-backend/    API et logique de détection
-frontend/   dashboard de démo
-demo/       scénario d'attaque scripté pour le pitch
-docs/       schéma d'architecture, slides
-```
 
 ## Sécurité du repo
 
@@ -98,4 +91,3 @@ Les secrets ne sont jamais commités : `.env` est ignoré et chaque commit est s
 ## Equipe
 
 Team CFF
->>>>>>> 0d68ab7efded46cfdb2fc95709906eeddf996150

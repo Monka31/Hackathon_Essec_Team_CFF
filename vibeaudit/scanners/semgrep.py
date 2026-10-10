@@ -6,8 +6,8 @@ import os
 from pathlib import Path
 from typing import List
 
-from ..core.models import Evidence, Finding
-from .base import read_snippet, require_binary, run_cmd, to_rel
+from ..core.models import Evidence, Finding, FindingList
+from .base import ScannerError, read_snippet, require_binary, run_cmd, to_rel
 
 NAME = "semgrep"
 
@@ -51,9 +51,23 @@ def scan(root: Path, timeout: int = 900) -> List[Finding]:
     cmd.append(".")
     # 0 = rien trouvé, 1 = failles trouvées
     proc = run_cmd(cmd, cwd=root, timeout=timeout, ok_codes=(0, 1))
-    data = json.loads(proc.stdout or "{}")
+    if not (proc.stdout or "").strip():
+        # Semgrep a planté sans rien produire : ne surtout pas afficher "0 faille"
+        tail = " | ".join((proc.stderr or "").strip().splitlines()[-2:])
+        raise ScannerError("Semgrep n'a rien renvoyé : " + tail[:250])
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        raise ScannerError("sortie JSON de Semgrep illisible")
+    fatal = [e for e in data.get("errors", []) if str(e.get("level", "")).lower() == "error"
+             and "rule" in str(e.get("type", "")).lower()]
+    if fatal and not data.get("results"):
+        raise ScannerError("règles Semgrep inutilisables : " + str(fatal[0].get("message", ""))[:250])
 
-    findings: List[Finding] = []
+    scanned = len((data.get("paths") or {}).get("scanned") or [])
+    findings: List[Finding] = FindingList(note=f"{scanned} fichier(s) analysé(s), règles : {', '.join(configs)[:120]}")
+    if scanned == 0:
+        raise ScannerError("Semgrep n'a analysé aucun fichier (langage non supporté ou règles introuvables)")
     for res in data.get("results", []):
         extra = res.get("extra", {})
         meta = extra.get("metadata", {}) or {}

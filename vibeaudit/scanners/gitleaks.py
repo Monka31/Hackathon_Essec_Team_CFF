@@ -11,6 +11,24 @@ from .base import read_snippet, require_binary, run_cmd, to_rel
 
 NAME = "gitleaks"
 
+# Clés publiques par conception : visibles côté navigateur, ce n'est pas une fuite en soi.
+# On les garde dans le rapport (en "basse") car toute la sécurité repose alors sur d'autres règles (RLS...).
+PUBLIC_KEY_PREFIXES = ("sb_publishable_", "pk_live_", "pk_test_")
+
+
+def _is_public_key(secret: str) -> bool:
+    if secret.startswith(PUBLIC_KEY_PREFIXES):
+        return True
+    if secret.startswith("eyJ") and secret.count(".") == 2:
+        import base64, json as _json
+        try:
+            payload = secret.split(".")[1]
+            payload += "=" * (-len(payload) % 4)
+            return _json.loads(base64.urlsafe_b64decode(payload)).get("role") == "anon"
+        except Exception:
+            return False
+    return False
+
 
 def scan(root: Path, timeout: int = 600) -> List[Finding]:
     require_binary("gitleaks", "brew install gitleaks")
@@ -36,6 +54,24 @@ def scan(root: Path, timeout: int = 600) -> List[Finding]:
             where.append("présent dans le code actuel")
         if in_history:
             where.append(f"présent dans l'historique git (commit {leak['Commit'][:8]})")
+        public = _is_public_key(leak.get("Secret", ""))
+        if public:
+            findings.append(
+                Finding(
+                    category="secret",
+                    title="Clé publique dans le code (normal, à vérifier)",
+                    severity="low",
+                    file=rel,
+                    line=line,
+                    snippet=read_snippet(root, rel, line) if still_present else None,
+                    description=("Clé publique par conception (Supabase publishable/anon, Stripe publishable). "
+                                 "Ce n'est pas une fuite, mais toute la sécurité repose alors sur les règles d'accès "
+                                 "(RLS de chaque table Supabase)."),
+                    fix_hint="Vérifier que la RLS est activée sur toutes les tables (Supabase > Advisors > Security).",
+                    evidence=[Evidence(source=NAME, rule_id=leak.get("RuleID", ""), raw=leak)],
+                )
+            )
+            continue
         findings.append(
             Finding(
                 category="secret",

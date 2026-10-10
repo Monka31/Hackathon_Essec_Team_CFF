@@ -23,7 +23,7 @@ def _run_snyk(args: List[str], root: Path, timeout: int) -> dict:
     try:
         proc = run_cmd(
             ["snyk"] + args + ["--json"], cwd=root, timeout=timeout, ok_codes=(0, 1, 2, 3),
-            env_extra={"SNYK_TOKEN": os.getenv("SNYK_TOKEN", "")},
+            env_extra={"SNYK_TOKEN": os.getenv("SNYK_TOKEN", ""), "SNYK_CFG_ORG": os.getenv("SNYK_ORG", "")},
         )
     except ScannerError:
         raise
@@ -40,8 +40,12 @@ def _run_snyk(args: List[str], root: Path, timeout: int) -> dict:
     if proc.returncode == 2 or (isinstance(data, dict) and data.get("ok") is False and data.get("error")):
         msg = data.get("error") if isinstance(data, dict) else None
         msg = msg or (proc.stderr or "").strip()
-        if "auth" in str(msg).lower():
+        low = str(msg).lower()
+        if "auth" in low:
             raise ScannerSkipped("Snyk n'est pas authentifié (lancer 'snyk auth')")
+        if "not supported for your current organization" in low or "not enabled" in low:
+            raise ScannerSkipped("Snyk Code n'est pas activé pour ton organisation Snyk : app.snyk.io > Settings > "
+                                 "Snyk Code > activer. Si besoin, mettre SNYK_ORG=<slug de l'organisation> dans le .env")
         raise ScannerError(str(msg)[:300])
     return data
 
