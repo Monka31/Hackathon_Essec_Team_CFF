@@ -423,6 +423,10 @@ const api = {
   async me() { try { return await http('GET', '/me'); } catch (e) { return { user: null }; } },
   // POST /auth/logout
   async logout() { try { await http('POST', '/auth/logout'); } catch (e) {} },
+  // POST /assistant  (questions cybersécurité)
+  async askAssistant(question) { return http('POST', '/assistant', { question }); },
+  // GET /github/repos  (repos où l'App est installée, pour lancer un audit/fix)
+  async githubRepos() { return http('GET', '/github/repos'); },
   // POST /audits
   async startAudit(payload) {
     if (!CONFIG.USE_MOCK) {
@@ -553,8 +557,10 @@ async function render() {
       if (parts[1] === 'dashboard') return screenDashboard();
       if (parts[1] === 'projects') return screenProjects();
       if (parts[1] === 'findings') return screenFindings(params);
-      if (parts[1] === 'fixes') return screenFixes(parts[2] || 'our-crm', params.get('select'));
-      if (parts[1] === 'passport') return screenPassport(parts[2] || 'our-crm');
+      if (parts[1] === 'fixes') return screenFixes(parts[2] || null, params.get('select'));
+      if (parts[1] === 'passport') return screenPassport(parts[2] || null);
+      if (parts[1] === 'integrations') return screenIntegrations();
+      if (parts[1] === 'settings') return screenSettings();
     }
     $app.innerHTML = `<div class="wrap"><h1 class="serif h1">Page not found</h1><a class="btn btn-lime" href="#/">Back to the home page</a></div>`;
   } catch (e) {
@@ -606,7 +612,7 @@ function bindExplainer() {
   x.addEventListener('click', () => { set(false); q.focus(); });
 }
 function shell(current, inner) {
-  const items = [['dashboard', 'Dashboard', '#/app/dashboard'], ['projects', 'Projects', '#/app/projects'], ['findings', 'Findings', '#/app/findings'], ['fixes', 'Fixes', '#/app/fixes/our-crm'], ['passport', 'Reports & passports', '#/app/passport/our-crm'], ['integrations', 'Integrations', '#/app/dashboard'], ['settings', 'Settings', '#/app/dashboard']];
+  const items = [['dashboard', 'Dashboard', '#/app/dashboard'], ['projects', 'Projects', '#/app/projects'], ['findings', 'Findings', '#/app/findings'], ['fixes', 'Fixes', '#/app/fixes'], ['passport', 'Reports & passports', '#/app/passport'], ['integrations', 'Integrations', '#/app/integrations'], ['settings', 'Settings', '#/app/settings']];
   return `<div class="shell">
     <aside class="side glass">
       <a class="brand" href="#/app/dashboard" style="padding:0 8px;font-size:18px"><span class="orb" style="width:30px;height:30px"></span>Syberia</a>
@@ -620,6 +626,7 @@ function shell(current, inner) {
 }
 document.addEventListener('click', e => { const t = e.target.closest('[data-toast]'); if (t) toast(t.dataset.toast); });
 document.addEventListener('click', async e => { const t = e.target.closest('[data-logout]'); if (!t) return; await api.logout(); state.user = null; toast('Logged out'); go('#/'); });
+document.addEventListener('click', e => { if (e.target.closest('[data-github-login]')) window.location.href = CONFIG.API_BASE + '/auth/github/login'; });
 
 /* =============================================================================
    [SCREENS]
@@ -851,34 +858,10 @@ function screenSignup(next) {
     <div class="dialog-head"><div><h1 id="st" class="serif" style="margin:0;font-size:40px;line-height:1.02">Create your free account to fix these issues</h1><p class="muted" style="margin:8px 0 0;font-size:15px;line-height:1.5">Your audit of our-crm (${computeScore(our)}/100, ${our.filter(isOpen).length} issues) is saved to your account.</p></div><a class="btn btn-icon" href="#/report/${state.lastAuditId || 'demo'}" aria-label="Close">×</a></div>
     <div style="display:flex;flex-wrap:wrap;gap:8px">${['Apply and re-test fixes', 'Share your passport', 'Auto re-scan on new versions'].map(t => `<span class="glass-soft" style="padding:8px 14px;border-radius:999px;font-size:14px">${t}</span>`).join('')}</div>
     <button class="btn btn-mint btn-lg" type="button" data-method="github">${ICON_GIT}Continue with GitHub</button>
-    <span class="muted" style="font-size:13px;text-align:center;margin-top:-10px">Recommended: lets us propose fixes in your repository.</span>
-    <button class="btn btn-lg" style="font-weight:500" type="button" data-method="google">Continue with Google</button>
-    <div class="or">or with email</div>
-    <form id="emailForm" class="stack" novalidate>
-      <div class="field"><label for="em">Work email</label><input id="em" class="input" type="email" placeholder="you@startup.com" autocomplete="email"></div>
-      <div class="field"><label for="pw">Password</label><input id="pw" class="input" type="password" placeholder="At least 12 characters" autocomplete="new-password"></div>
-      <div class="err" id="serr" role="alert"></div>
-      <button class="btn btn-lime btn-lg" type="submit">Create my account</button>
-    </form>
-    <p class="muted" style="margin:0;font-size:14px;text-align:center">Already have an account? <a href="#" id="login" style="font-weight:600">Log in</a></p>
-    <p class="muted" style="margin:0;font-size:12px;text-align:center">By continuing you accept the [Terms] and [Privacy policy].</p>
+    <span class="muted" style="font-size:14px;text-align:center;line-height:1.5">We use GitHub to identify you and to propose fixes as pull requests in your repository. No password to create.</span>
+    <div class="err" id="serr" role="alert"></div>
   </div></div>`;
-  const after = user => { state.user = user; go(user.onboarded ? next : '#/onboarding?next=' + encodeURIComponent(next)); };
-  const done = async p => { try { after((await api.signup(p)).user); } catch (e) { document.getElementById('serr').textContent = 'Sign-up failed: ' + e.message; } };
-  document.querySelectorAll('[data-method]').forEach(b => b.addEventListener('click', () => {
-    const m = b.dataset.method;
-    if (m === 'github') { window.location.href = CONFIG.API_BASE + '/auth/github/login'; return; }
-    if (m === 'google') { toast('Google sign-in arrives in the next version — use GitHub or email'); return; }
-    done({ method: m });
-  }));
-  document.getElementById('emailForm').addEventListener('submit', e => {
-    e.preventDefault();
-    const em = document.getElementById('em').value.trim(), pw = document.getElementById('pw').value, serr = document.getElementById('serr');
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { serr.textContent = 'Enter a valid email address.'; return; }
-    if (pw.length < 12) { serr.textContent = 'Use at least 12 characters for your password.'; return; }
-    done({ method: 'email', email: em, password: pw });
-  });
-  document.getElementById('login').addEventListener('click', e => { e.preventDefault(); toast('Enter your email above, then click Create my account'); });
+  document.querySelectorAll('[data-method]').forEach(b => b.addEventListener('click', () => { window.location.href = CONFIG.API_BASE + '/auth/github/login'; }));
 }
 
 /* 5 · Onboarding (4 steps) */
@@ -969,9 +952,38 @@ function bindProjectsTable() {
   });
 }
 
+/* Assistant IA (questions cybersécurité) */
+function askBox(ph) {
+  return `<form class="glass" id="ask" style="border-radius:24px;padding:8px 8px 8px 20px;display:flex;flex-wrap:wrap;align-items:center;gap:12px">
+      <span class="orb" style="width:26px;height:26px"></span><label for="askIn" class="sr-only">Ask about your security</label>
+      <input id="askIn" type="text" placeholder="${esc(ph || 'Ask anything about your security…')}" style="flex:1 1 320px;min-width:0;height:48px;border:none;background:transparent;font-size:15px">
+      <button class="btn btn-mint" type="submit">Ask</button></form>
+    <div id="askAns" class="glass-soft" style="border-radius:20px;padding:16px 18px;font-size:15px;line-height:1.55;white-space:pre-wrap;display:none"></div>`;
+}
+function wireAsk() {
+  const form = document.getElementById('ask'); if (!form) return;
+  const ans = document.getElementById('askAns'), input = document.getElementById('askIn');
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const q = input.value.trim(); if (!q) return;
+    ans.style.display = 'block'; ans.textContent = 'Thinking…';
+    try { const r = await api.askAssistant(q); ans.textContent = r.answer || 'No answer.'; }
+    catch (ex) { ans.textContent = 'The assistant is unavailable: ' + ex.message; }
+  });
+}
+
 /* 6 · Dashboard */
 async function screenDashboard() {
   const { projects, findings } = await loadWorkspace();
+  if (!projects.length) {
+    $app.innerHTML = shell('dashboard', `<div class="page-head"><div><p class="eyebrow">Welcome</p><h1 class="serif h1">Overview</h1></div></div>
+      <section class="glass card stack"><h2 class="h2">No audit yet</h2><p style="margin:0;font-size:15px;line-height:1.5">Run your first audit to see your score, findings and fixes here.</p>
+        <div style="display:flex;flex-wrap:wrap;gap:10px"><a class="btn btn-lime" href="#/">Quick audit (URL)</a><a class="btn btn-mint" href="#/deep">Deep audit (GitHub repo or ZIP)</a></div>
+        <p class="muted" style="margin:0;font-size:13px">To use the fix feature later, run a deep audit on a GitHub repository where the Syberia app is installed.</p></section>
+      ${askBox()}`);
+    wireAsk();
+    return;
+  }
   const avg = Math.round(projects.reduce((s, p) => s + p.score, 0) / projects.length);
   const open = findings.filter(isOpen), crit = open.filter(f => f.severity === 'critical').length;
   const verified = projects.reduce((s, p) => s + p.fixes_verified, 0);
@@ -983,10 +995,7 @@ async function screenDashboard() {
   const ifFixed = Math.max(0, 100 - worst.findings.filter(f => isOpen(f) && (f.severity === 'medium' || f.severity === 'low')).reduce((s, f) => s + WEIGHTS[f.severity], 0));
   const inner = `<div class="page-head"><div><p class="eyebrow">Good afternoon</p><h1 class="serif h1">Overview</h1></div>
       <div style="display:flex;flex-wrap:wrap;gap:10px"><a class="btn" href="#/" style="font-weight:500">Quick audit</a><a class="btn btn-lime" href="#/deep">+ New project</a></div></div>
-    <form class="glass" id="ask" style="border-radius:24px;padding:8px 8px 8px 20px;display:flex;flex-wrap:wrap;align-items:center;gap:12px">
-      <span class="orb" style="width:26px;height:26px"></span><label for="askIn" class="sr-only">Ask about your security</label>
-      <input id="askIn" type="text" placeholder="Ask anything: why is ${esc(worst.name)} at ${worst.score}? what should I fix first?" style="flex:1 1 320px;min-width:0;height:48px;border:none;background:transparent;font-size:15px">
-      <button class="btn btn-mint" type="submit">Ask</button></form>
+    ${askBox(`Ask anything: why is ${esc(worst.name)} at ${worst.score}? what should I fix first?`)}
     <div class="row">
       <div style="flex:2 1 420px;display:flex;flex-direction:column;gap:18px">
         <div class="row" style="gap:14px">
@@ -1018,7 +1027,7 @@ async function screenDashboard() {
   $app.innerHTML = shell('dashboard', inner);
   bindProjectsTable();
   document.querySelectorAll('[data-rescan]').forEach(b => b.addEventListener('click', async () => { await api.rescan(b.dataset.rescan); toast('Re-scan started'); render(); }));
-  document.getElementById('ask').addEventListener('submit', e => { e.preventDefault(); toast('The assistant arrives in the next version'); /* TODO(backend): POST /assistant { question } */ });
+  wireAsk();
 }
 
 /* 6c · Projects */
@@ -1039,7 +1048,12 @@ async function screenFindings(params) {
     const rows = findings.filter(isOpen).filter(f => (st.project === 'all' || f.project_id === st.project) && (st.sev === 'all' || f.severity === st.sev)).sort((a, b) => SEV_ORDER[a.severity] - SEV_ORDER[b.severity]);
     const chips = (list, key) => list.map(([v, l]) => `<button class="btn btn-sm ${st[key] === v ? 'btn-mint' : ''}" type="button" aria-pressed="${st[key] === v}" data-${key}="${v}">${l}</button>`).join('');
     const sel = st.project === 'all' ? '' : st.project;
+    const OWASP10 = [['A01', 'Broken Access Control'], ['A02', 'Cryptographic Failures'], ['A03', 'Injection'], ['A04', 'Insecure Design'], ['A05', 'Security Misconfiguration'], ['A06', 'Vulnerable & Outdated Components'], ['A07', 'Identification & Authentication Failures'], ['A08', 'Software & Data Integrity Failures'], ['A09', 'Security Logging & Monitoring Failures'], ['A10', 'Server-Side Request Forgery']];
+    const owaspScope = findings.filter(isOpen).filter(f => st.project === 'all' || f.project_id === st.project);
+    const owaspCount = code => owaspScope.filter(f => (f.owasp || '').startsWith(code)).length;
+    const owaspCov = `<div class="glass-soft" style="border-radius:18px;padding:14px 16px"><div class="muted" style="font-size:13px;margin-bottom:8px">OWASP Top 10 (2021) coverage</div><div style="display:flex;flex-wrap:wrap;gap:8px">${OWASP10.map(([c, n]) => { const k = owaspCount(c); return `<span class="chip ${k ? 'sev-high' : 'glass-soft'}" title="${esc(n)}" style="font-size:12px;padding:6px 10px${k ? '' : ';opacity:.5'}">${c}${k ? ' · ' + k : ''}</span>`; }).join('')}</div></div>`;
     document.getElementById('fbody').innerHTML = `
+      ${owaspCov}
       <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="muted" style="font-size:13px;margin-right:4px">Project</span>${chips([['all', 'All projects']].concat(projects.map(p => [p.id, p.name])), 'project')}
         <span class="muted" style="font-size:13px;margin:0 4px 0 12px">Severity</span>${chips([['all', 'All'], ['critical', 'Critical'], ['high', 'High'], ['medium', 'Medium']], 'sev')}</div>
       <div class="f-top" style="align-items:center"><span style="font-size:14px;color:var(--text-2)">${rows.length} open issue${rows.length === 1 ? '' : 's'}</span>
@@ -1049,8 +1063,10 @@ async function screenFindings(params) {
           ${f.proof.confirmed ? '<span class="chip" style="background:rgba(200,242,74,.35);color:#2F5A1A">Confirmed by live test</span>' : ''}</div>
         ${st.dev ? `<code class="mono" style="font-size:15px;font-weight:500">${esc(f.rule_id)}</code><span class="mono" style="font-size:13px;color:var(--link)">${esc(f.file)}${f.line ? ':' + f.line : ''} · ${esc(f.cwe)} · OWASP ${esc(f.owasp)}</span><p style="margin:0;font-size:14px;line-height:1.5">${esc(f.summary)}</p>`
           : `<h3 style="margin:0;font-size:18px;font-weight:600">${esc(f.title)}</h3><p style="margin:0;font-size:15px;line-height:1.5">${esc(f.impact)}</p>`}
-        <div class="code" id="d-${f.id}" hidden style="padding:10px 0">${f.code.length ? f.code.map(l => `<div class="${l.hit ? 'hit' : ''}"><span class="ln">${l.n}</span>${esc(l.text)}</div>`).join('') : `<div>${esc(f.technical_detail)}</div>`}</div>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px"><a class="btn btn-lime btn-sm" href="#/app/fixes/${f.project_id}?select=${f.id}">Fix this</a><button class="btn btn-sm" type="button" data-detail="${f.id}" aria-expanded="false" aria-controls="d-${f.id}">Details</button><button class="btn btn-sm" type="button" data-toast="Marked as false positive (mock)">Mark as false positive</button></div>
+        <div style="font-size:12px;color:var(--text-2);font-weight:600;margin-top:4px">Code &amp; detection</div>
+        <div class="code" id="d-${f.id}" style="padding:10px 0">${f.code.length ? f.code.map(l => `<div class="${l.hit ? 'hit' : ''}"><span class="ln">${l.n}</span>${esc(l.text)}</div>`).join('') : `<div>${esc(f.technical_detail || f.summary)}</div>`}</div>
+        <p class="mono muted" style="margin:0;font-size:12px">${esc(f.file)}${f.line ? ':' + f.line : ''} · ${esc(f.cwe)} · OWASP ${esc(f.owasp)} · ${esc(f.proof.text)}</p>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px"><a class="btn btn-lime btn-sm" href="#/app/fixes/${f.project_id}?select=${f.id}">Fix this</a></div>
       </div></article>`).join('') : '<div class="glass card"><p style="margin:0">No open issues match these filters. Pick another project or severity.</p></div>'}`;
     document.querySelectorAll('[data-project]').forEach(b => b.addEventListener('click', () => { st.project = b.dataset.project; drawList(); }));
     document.querySelectorAll('[data-sev]').forEach(b => b.addEventListener('click', () => { st.sev = b.dataset.sev; drawList(); }));
@@ -1066,9 +1082,32 @@ async function screenFindings(params) {
 }
 
 /* 7 · Fixes: select, fix now (batch with per-row progress), then deploy or download */
+async function fixGate(reason) {
+  let data; try { data = await api.githubRepos(); } catch (e) { data = { configured: false, repos: [], install_url: null }; }
+  const repos = data.repos || [];
+  const body = `<div class="page-head"><div><p class="eyebrow">Fixing a problem connects to your GitHub</p><h1 class="serif h1">Connect a repository to fix</h1></div></div>
+    <section class="glass card stack">
+      <p style="margin:0;font-size:15px;line-height:1.55">${esc(reason || 'To fix a problem, Syberia needs your GitHub repository. It signs you in with GitHub, confirms you own the repository, and opens a pull request with the fix that you review and merge.')}</p>
+      <p style="margin:0;font-size:14px;color:var(--text-2);line-height:1.5">A URL or ZIP audit has no repository behind it, so there is nothing to open a pull request against. Pick a repository below to audit it and enable fixes.</p>
+      ${!data.configured ? '<p class="muted">GitHub is not configured on the server yet.</p>'
+      : repos.length ? `<div><div class="muted" style="font-size:13px;margin-bottom:8px">Your repositories where the Syberia app is installed:</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">${repos.map(r => `<button class="btn btn-sm" type="button" data-pickrepo="${esc(r.full_name)}">${ICON_GIT}${esc(r.full_name)}${r.private ? ' · private' : ''}</button>`).join('')}</div></div>`
+        : `<div class="stack"><p style="margin:0">The Syberia GitHub app is not installed on any of your repositories yet.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn btn-mint" href="${esc(data.install_url || '#')}" target="_blank" rel="noopener">Install on a repository</a><button class="btn btn-sm" type="button" id="refreshRepos">I installed it, refresh</button></div></div>`}
+    </section>`;
+  $app.innerHTML = shell('fixes', body);
+  document.querySelectorAll('[data-pickrepo]').forEach(b => b.addEventListener('click', async () => {
+    b.disabled = true; b.textContent = 'Starting the audit…';
+    try { const { audit_id } = await api.startAudit({ type: 'deep', provider: 'github', repo_url: b.dataset.pickrepo }); state.lastAuditId = audit_id; go('#/scan/' + audit_id); }
+    catch (ex) { toast('Could not start: ' + ex.message); b.disabled = false; }
+  }));
+  const rb = document.getElementById('refreshRepos'); if (rb) rb.addEventListener('click', () => render());
+}
+
 async function screenFixes(projectId, select) {
   const { projects } = await loadWorkspace();
-  const p = projects.find(x => x.id === projectId) || projects[0];
+  const p = projects.find(x => x.id === projectId && x.has_repo) || projects.find(x => x.id === projectId) || projects.find(x => x.has_repo) || projects[0];
+  if (!p || !p.has_repo) return fixGate();
   const open = p.findings.filter(isOpen).sort((a, b) => SEV_ORDER[a.severity] - SEV_ORDER[b.severity]);
   const pre = select ? select.split(',') : open.filter(f => f.severity === 'critical' || f.severity === 'high').map(f => f.id);
   const sel = {}; open.forEach(f => { sel[f.id] = pre.includes(f.id); });
@@ -1126,7 +1165,20 @@ async function screenFixes(projectId, select) {
       });
     }
     const dep = document.getElementById('deploy');
-    if (dep) dep.addEventListener('click', async () => { dep.disabled = true; dep.textContent = 'Opening the pull request…'; const { pr_url } = await api.deployBatch(batch, 'github'); dep.textContent = 'Pull request opened'; toast('Pull request opened'); window.open(pr_url, '_blank', 'noopener'); });
+    if (dep) dep.addEventListener('click', async () => {
+      dep.disabled = true; dep.textContent = 'Opening the pull request…';
+      try {
+        const { pr_url } = await api.deployBatch(batch, 'github');
+        dep.textContent = 'Pull request opened'; toast('Pull request opened'); window.open(pr_url, '_blank', 'noopener');
+      } catch (e) {
+        dep.disabled = false; dep.textContent = 'Deploy to GitHub';
+        const msg = e.message || '';
+        if (/not installed|install/i.test(msg)) toast('Install the Syberia GitHub App on this repo (Install button in the app settings), then retry');
+        else if (/no connected GitHub repo|no pull request|has no connected/i.test(msg)) toast('This audit was run on a URL or a ZIP, so there is no repo to open a PR against. Run a deep audit on your GitHub repository to enable fixes.');
+        else if (/not configured|Sign in/i.test(msg)) toast('Connect GitHub to deploy the fix');
+        else toast('Deploy failed: ' + msg);
+      }
+    });
     const zip = document.getElementById('zipDl');
     if (zip) zip.addEventListener('click', () => toast('ZIP download arrives in the next version — use Deploy to GitHub to open the pull request'));
   };
@@ -1136,6 +1188,7 @@ async function screenFixes(projectId, select) {
 /* 8 · Security passport */
 async function screenPassport(projectId) {
   const { projects } = await loadWorkspace();
+  if (!projects.length) { $app.innerHTML = shell('passport', `<div class="page-head"><h1 class="serif h1">Security passport</h1></div><div class="glass card"><p style="margin:0">Run an audit first to generate a passport. <a href="#/">Start an audit</a>.</p></div>`); return; }
   const p = projects.find(x => x.id === projectId) || projects[0];
   const fs = p.findings.slice().sort((a, b) => SEV_ORDER[a.severity] - SEV_ORDER[b.severity]);
   const init = initialScore(fs), score = p.score, fixed = fs.filter(f => !isOpen(f)), open = fs.filter(isOpen), v = verdict(score);
@@ -1165,6 +1218,36 @@ async function screenPassport(projectId) {
   });
   // TODO(backend): replace with GET /passports/:projectId/pdf. window.print() is a stand-in (print styles hide the sidebar).
   document.getElementById('pdf').addEventListener('click', () => window.print());
+}
+
+/* 8 · Integrations */
+async function screenIntegrations() {
+  const u = state.user || {};
+  $app.innerHTML = shell('integrations', `<div class="page-head"><div><p class="eyebrow">Connect the tools we read from and deploy to</p><h1 class="serif h1">Integrations</h1></div></div>
+    <section class="glass card stack">
+      <div class="f-top" style="align-items:center"><div style="display:flex;align-items:center;gap:10px">${ICON_GIT}<strong style="font-size:18px">GitHub</strong></div><span class="chip glass-soft" style="color:#2F5A1A">${u.login ? 'Connected as ' + esc(u.login) : 'Not connected'}</span></div>
+      <p style="margin:0;font-size:14px;line-height:1.5;color:var(--text-2)">Used to sign you in, clone private repos for deep audits, and open pull requests with the fixes. To audit or fix a private repo, install the Syberia GitHub App on it.</p>
+      ${u.login ? '' : `<button class="btn btn-mint" type="button" data-github-login>Connect GitHub</button>`}
+    </section>
+    <section class="glass card stack">
+      <strong style="font-size:18px">Other tools</strong>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">${['GitLab', 'Bitbucket', 'Vercel', 'Supabase'].map(x => `<button class="btn btn-sm" type="button" data-toast="${x} integration arrives in the next version">${x}</button>`).join('')}</div>
+    </section>`);
+}
+
+/* 9 · Settings */
+async function screenSettings() {
+  const u = state.user || {};
+  $app.innerHTML = shell('settings', `<div class="page-head"><div><p class="eyebrow">Your account</p><h1 class="serif h1">Settings</h1></div></div>
+    <section class="glass card stack">
+      <div style="display:flex;align-items:center;gap:14px"><span class="orb" style="width:44px;height:44px"></span><div><strong style="font-size:17px">${esc(u.name || 'Account')}</strong><div class="mono muted" style="font-size:13px">${esc(u.login ? '@' + u.login : (u.email || ''))}</div></div></div>
+      <p style="margin:0;font-size:14px;color:var(--text-2)">Signed in with GitHub.</p>
+      <div><button class="btn btn-lime" type="button" data-logout>Log out</button></div>
+    </section>
+    <section class="glass card stack">
+      <strong style="font-size:18px">About</strong>
+      <p class="mono muted" style="margin:0;font-size:13px">Syberia security audit platform. Static and passive analysis, fixes proposed as pull requests you review. No active exploitation.</p>
+    </section>`);
 }
 
 (async () => { try { const r = await api.me(); state.user = r && r.user ? r.user : null; } catch (e) {} render(); })();

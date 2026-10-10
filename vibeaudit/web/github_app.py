@@ -176,6 +176,48 @@ def put_file(owner: str, repo: str, path: str, new_content: str, message: str, b
     return r.status_code in (200, 201)
 
 
+def app_slug() -> Optional[str]:
+    r = requests.get(f"{API}/app", headers=_app_headers(), timeout=_TIMEOUT)
+    return r.json().get("slug") if r.status_code == 200 else None
+
+
+def install_url() -> str:
+    slug = app_slug()
+    return f"https://github.com/apps/{slug}/installations/new" if slug else "https://github.com/settings/installations"
+
+
+def installations_for_account(login: Optional[str]) -> List[int]:
+    r = requests.get(f"{API}/app/installations", headers=_app_headers(), timeout=_TIMEOUT,
+                     params={"per_page": 100})
+    out: List[int] = []
+    if r.status_code == 200:
+        for inst in r.json():
+            acct = (inst.get("account") or {}).get("login")
+            if not login or (acct and acct.lower() == login.lower()):
+                out.append(inst["id"])
+    return out
+
+
+def _repos_for_installation(inst_id: int) -> List[Dict[str, Any]]:
+    tok = installation_token(inst_id)
+    if not tok:
+        return []
+    r = requests.get(f"{API}/installation/repositories", headers=_repo_headers(tok),
+                     timeout=_TIMEOUT, params={"per_page": 100})
+    if r.status_code == 200:
+        return [{"full_name": x["full_name"], "private": x["private"], "html_url": x["html_url"]}
+                for x in r.json().get("repositories", [])]
+    return []
+
+
+def repos_for_account(login: Optional[str]) -> List[Dict[str, Any]]:
+    seen: Dict[str, Dict[str, Any]] = {}
+    for inst in installations_for_account(login):
+        for repo in _repos_for_installation(inst):
+            seen[repo["full_name"]] = repo
+    return list(seen.values())
+
+
 def open_pull_request(owner: str, repo: str, head: str, base: str, title: str, body: str,
                       token: str) -> Optional[str]:
     r = requests.post(f"{API}/repos/{owner}/{repo}/pulls", headers=_repo_headers(token),
