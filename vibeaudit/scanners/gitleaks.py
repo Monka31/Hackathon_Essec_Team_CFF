@@ -51,23 +51,23 @@ def scan(root: Path, timeout: int = 600) -> List[Finding]:
         still_present = (root / rel).exists()
         where = []
         if still_present:
-            where.append("présent dans le code actuel")
+            where.append("present in the current code")
         if in_history:
-            where.append(f"présent dans l'historique git (commit {leak['Commit'][:8]})")
+            where.append(f"present in git history (commit {leak['Commit'][:8]})")
         public = _is_public_key(leak.get("Secret", ""))
         if public:
             findings.append(
                 Finding(
                     category="secret",
-                    title="Clé publique dans le code (normal, à vérifier)",
+                    title="Public key in the code (expected, verify RLS)",
                     severity="low",
                     file=rel,
                     line=line,
                     snippet=read_snippet(root, rel, line) if still_present else None,
-                    description=("Clé publique par conception (Supabase publishable/anon, Stripe publishable). "
-                                 "Ce n'est pas une fuite, mais toute la sécurité repose alors sur les règles d'accès "
-                                 "(RLS de chaque table Supabase)."),
-                    fix_hint="Vérifier que la RLS est activée sur toutes les tables (Supabase > Advisors > Security).",
+                    description=("Public key by design (Supabase publishable/anon, Stripe publishable). "
+                                 "Not a leak in itself, but all security then rests on the access rules "
+                                 "(row level security of each Supabase table)."),
+                    fix_hint="Check that row level security is enabled on every table (Supabase > Advisors > Security).",
                     evidence=[Evidence(source=NAME, rule_id=leak.get("RuleID", ""), raw=leak)],
                 )
             )
@@ -75,7 +75,7 @@ def scan(root: Path, timeout: int = 600) -> List[Finding]:
         findings.append(
             Finding(
                 category="secret",
-                title=f"Secret exposé : {leak.get('RuleID', 'secret')}",
+                title=f"Exposed secret: {leak.get('RuleID', 'secret')}",
                 severity="critical",  # choix C : tout secret est critique
                 file=rel,
                 line=line,
@@ -83,8 +83,8 @@ def scan(root: Path, timeout: int = 600) -> List[Finding]:
                 description=(leak.get("Description", "") + " (" + ", ".join(where) + ")").strip(),
                 cwe=["CWE-798"],
                 fix_hint=(
-                    "Révoquer la clé chez le fournisseur et en générer une nouvelle, la sortir du code "
-                    "(variable d'environnement côté serveur), puis nettoyer l'historique git si besoin."
+                    "Revoke the key at the provider and generate a new one, move it out of the code "
+                    "(server-side environment variable), then clean the git history if needed."
                 ),
                 evidence=[Evidence(source=NAME, rule_id=leak.get("RuleID", ""), raw=leak)],
             )

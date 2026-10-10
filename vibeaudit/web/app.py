@@ -1,32 +1,26 @@
-"""Plateforme web : formulaire, suivi en direct, rapport.
+"""Plateforme web : sert le prototype (interface) et l'API qu'il attend.
 
 Lancer : python -m vibeaudit serve            (puis http://127.0.0.1:8000)
-Sur le serveur : python -m vibeaudit serve --host 0.0.0.0 --port 8000
 """
 from __future__ import annotations
 
-import hmac
+import json
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from .. import __version__
 from ..config import load_env
 from ..core.net import UnsafeURL, check_public_url, parse_github_url
 
 load_env()
-from .jobs import STORE, audit_log  # noqa: E402  (après load_env pour lire DATA_DIR)
+from . import adapter  # noqa: E402
+from .jobs import STORE, audit_log  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
-templates = Jinja2Templates(directory=str(HERE / "templates"))
 app = FastAPI(title="vibeaudit", version=__version__, docs_url=None, redoc_url=None)
-
-
-def _access_code() -> str:
-    return os.getenv("PLATFORM_ACCESS_CODE", "")
 
 
 def _client_ip(request: Request) -> str:
@@ -36,89 +30,100 @@ def _client_ip(request: Request) -> str:
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
-    # On applique à notre plateforme ce qu'on reproche aux autres
     resp = await call_next(request)
     resp.headers["X-Content-Type-Options"] = "nosniff"
-    resp.headers["X-Frame-Options"] = "DENY"
     resp.headers["Referrer-Policy"] = "no-referrer"
-    resp.headers["Content-Security-Policy"] = (
-        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data:; frame-ancestors 'none'"
-    )
     return resp
 
 
 @app.get("/", response_class=HTMLResponse)
-def index(request: Request):
-    return templates.TemplateResponse(request, "index.html", {"need_code": bool(_access_code()), "error": None, "form": {}})
+def index():
+    return FileResponse(HERE / "prototype.html", media_type="text/html")
 
 
-@app.post("/scan")
-def start_scan(
-    request: Request,
-    repo_url: str = Form(""),
-    app_url: str = Form(""),
-    github_token: str = Form(""),
-    owner_consent: str = Form(""),
-    access_code: str = Form(""),
-):
-    repo_url, app_url, github_token = repo_url.strip(), app_url.strip(), github_token.strip()
-    form = {"repo_url": repo_url, "app_url": app_url}
+@app.post("/api/audits")
+async def start_audit(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    repo_url = (body.get("repo_url") or "").strip()
+    app_url = (body.get("url") or "").strip()
+    consent = bool(body.get("owner_consent"))
 
-    def fail(msg: str):
-        return templates.TemplateResponse(request, "index.html", {"need_code": bool(_access_code()), "error": msg, "form": form},
-                                          status_code=400)
-
-    if _access_code() and not hmac.compare_digest(access_code.strip(), _access_code()):
-        return fail("Code d'accès incorrect.")
     if not repo_url and not app_url:
-        return fail("Indique au moins un lien GitHub ou une URL d'appli.")
+        raise HTTPException(400, "Provide an app URL, a GitHub repo, or both.")
     if repo_url and not parse_github_url(repo_url):
-        return fail("Lien GitHub invalide. Format attendu : https://github.com/compte/projet")
+        raise HTTPException(400, "Invalid GitHub URL. Expected https://github.com/owner/project")
     if app_url:
         try:
             check_public_url(app_url)
         except UnsafeURL as e:
-            return fail(f"URL refusée : {e}")
-    if owner_consent != "yes":
-        return fail("Tu dois certifier être propriétaire du projet ou autorisé à le tester.")
-    if github_token and not (github_token.startswith(("github_pat_", "ghp_", "gho_", "ghs_")) and len(github_token) < 300):
-        return fail("Token GitHub au format inattendu.")
+            raise HTTPException(400, f"URL refused: {e}")
+    if not consent:
+        raise HTTPException(400, "You must confirm you own this project or are authorized to test it.")
 
-    job = STORE.create(repo_url or None, app_url or None, github_token or None, _client_ip(request), consent=True)
-    return RedirectResponse(f"/jobs/{job.id}", status_code=303)
+    job = STORE.create(repo_url or None, app_url or None, None, _client_ip(request), consent=True)
+    return {"audit_id": job.id}
 
 
-@app.get("/jobs/{job_id}", response_class=HTMLResponse)
-def job_page(request: Request, job_id: str):
+@app.get("/api/audits/{job_id}/status")
+def audit_status(job_id: str):
     job = STORE.get(job_id)
     if not job:
-        raise HTTPException(404, "Analyse introuvable")
-    return templates.TemplateResponse(request, "job.html", {"job": job})
+        raise HTTPException(404, "Audit not found")
+    return JSONResponse(adapter.status_payload(job.public()))
 
 
-@app.get("/api/jobs/{job_id}")
-def job_status(job_id: str):
-    job = STORE.get(job_id)
-    if not job:
-        raise HTTPException(404, "Analyse introuvable")
-    return JSONResponse(job.public())
-
-
-@app.get("/jobs/{job_id}/report", response_class=HTMLResponse)
-def job_report(job_id: str):
-    p = STORE.report_html(job_id)
-    if not p:
-        raise HTTPException(404, "Rapport pas encore prêt")
-    return FileResponse(p, media_type="text/html")
-
-
-@app.get("/api/jobs/{job_id}/report")
-def job_report_json(job_id: str):
+@app.get("/api/audits/{job_id}/report")
+def audit_report(job_id: str):
     p = STORE.report_json(job_id)
     if not p:
-        raise HTTPException(404, "Rapport pas encore prêt")
-    return FileResponse(p, media_type="application/json")
+        raise HTTPException(404, "Report not ready")
+    report = json.loads(p.read_text(encoding="utf-8"))
+    return JSONResponse(adapter.to_prototype(report))
+
+
+# --- Stubs pour que les écrans du prototype ne cassent pas (pas encore branchés) ---
+@app.post("/api/auth/signup")
+async def signup(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    email = body.get("email")
+    name = (email.split("@")[0] if email else "Founder")
+    return {"user": {"id": "u_demo", "name": name, "email": email}}
+
+
+@app.get("/api/projects")
+def projects():
+    return []
+
+
+@app.post("/api/audits/{job_id}/findings/{fid}/fix")
+def create_fix(job_id: str, fid: str):
+    # La correction automatique par PR n'est pas encore branchée : on renvoie la proposition sans l'appliquer.
+    p = STORE.report_json(job_id)
+    steps = []
+    if p:
+        rep = json.loads(p.read_text(encoding="utf-8"))
+        f = next((x for x in rep.get("findings", []) if x["id"] == fid), None)
+        if f:
+            steps = f.get("fix_steps") or []
+    return {
+        "fix_id": f"fx_{job_id}_{fid}", "finding_id": fid, "status": "pr_created",
+        "plain_change": "Suggested fix (preview). Automatic pull requests are coming soon.",
+        "reassurance": "Nothing is changed in your repository yet.",
+        "file": "", "diff": [f"+ {s}" for s in steps] or ["+ (see the fix steps in the report)"],
+        "checks": [], "pr_url": None,
+    }
+
+
+@app.get("/api/fixes/{fix_id}")
+def get_fix(fix_id: str):
+    return {"fix_id": fix_id, "status": "pr_created", "diff": [], "checks": [], "pr_url": None,
+            "plain_change": "Preview only.", "reassurance": "", "file": ""}
 
 
 @app.get("/api/health")

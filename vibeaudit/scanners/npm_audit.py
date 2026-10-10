@@ -60,11 +60,11 @@ def scan(root: Path, timeout: int = 300) -> List[Finding]:
         refs = [a.get("url") for a in advisories if a.get("url")]
 
         if titles:
-            title = f"Dépendance vulnérable : {name} ({len(titles)} faille(s) connue(s))"
+            title = f"Vulnerable dependency: {name} ({len(titles)} known issue(s))"
             desc = "\n".join(f"- {t}" for t in titles)
         else:
-            title = f"Dépendance vulnérable : {name} (via {', '.join(via_pkgs)})"
-            desc = f"Hérite des failles de : {', '.join(via_pkgs)}"
+            title = f"Vulnerable dependency: {name} (via {', '.join(via_pkgs)})"
+            desc = f"Inherits vulnerabilities from: {', '.join(via_pkgs)}"
 
         direct = bool(vuln.get("isDirect"))
         file = "package.json" if direct else "package-lock.json"
@@ -72,13 +72,13 @@ def scan(root: Path, timeout: int = 300) -> List[Finding]:
 
         fix = vuln.get("fixAvailable")
         if isinstance(fix, dict):
-            hint = f"Mettre à jour vers {fix.get('name')}@{fix.get('version')}"
+            hint = f"Update to {fix.get('name')}@{fix.get('version')}"
             if fix.get("isSemVerMajor"):
-                hint += " (version majeure : tester l'appli après la mise à jour)"
+                hint += " (major version: test the app after updating)"
         elif fix is True:
-            hint = "Correctif disponible : 'npm audit fix'"
+            hint = "Fix available: run 'npm audit fix'"
         else:
-            hint = "Pas de correctif automatique : remplacer la dépendance ou surveiller"
+            hint = "No automatic fix: replace the dependency or monitor it"
 
         findings.append(
             Finding(
@@ -88,8 +88,8 @@ def scan(root: Path, timeout: int = 300) -> List[Finding]:
                 file=file,
                 line=line,
                 snippet=read_snippet(root, file, line, context=0) if direct else None,
-                description=desc + f"\nVersions concernées : {vuln.get('range', '?')}"
-                + ("" if direct else " (dépendance indirecte)"),
+                description=desc + f"\nAffected versions: {vuln.get('range', '?')}"
+                + ("" if direct else " (indirect dependency)"),
                 cwe=cwe,
                 package=name,
                 fix_hint=hint,

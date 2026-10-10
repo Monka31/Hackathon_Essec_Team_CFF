@@ -94,14 +94,14 @@ def scan_deps(root: Path, timeout: int = 600) -> List[Finding]:
             refs = [f"https://security.snyk.io/vuln/{v.get('id')}"] if v.get("id") else []
             sev = SEV_MAP.get(v.get("severity", "low"), "low")
             upgrade = [u for u in (v.get("upgradePath") or []) if u]
-            hint = f"Mettre à jour vers {upgrade[0]}" if upgrade and v.get("isUpgradable") else None
+            hint = f"Update to {upgrade[0]}" if upgrade and v.get("isUpgradable") else None
             f = by_pkg.get(pkg)
             if f is None:
                 direct = len(v.get("from", [])) <= 2
                 line = find_line(root, target, f'"{pkg}"') if direct else None
                 f = Finding(
                     category="dependency",
-                    title=f"Dépendance vulnérable : {pkg}",
+                    title=f"Vulnerable dependency: {pkg}",
                     severity=sev,
                     file=target,
                     line=line,
