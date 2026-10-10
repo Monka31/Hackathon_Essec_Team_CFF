@@ -74,6 +74,8 @@ def cmd_scan(args: argparse.Namespace) -> int:
 def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
     from .web.app import app
+    from . import db
+    db.init_db()
 
     print(f"Plateforme sur http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
