@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # vibeaudit (nom provisoire)
 
 Audit de sécurité des projets vibe-codés : on scanne le code, les dépendances, les secrets et la configuration de la base, puis on produit un rapport avec un score sur 100.
@@ -55,3 +56,46 @@ vibeaudit/
 
 Règles du score : 100, moins 25 par faille critique, 10 par haute, 3 par moyenne, 1 par basse (plancher 0).
 Tout secret est critique. Les secrets sont masqués dans les rapports (4 premiers caractères seulement).
+=======
+# Hackathon Essec - Team CFF
+
+Projet réalisé lors de **Secure Horizons** (UTOPIA x KRYPTOSPHERE x ESSEC MetaLab), ESSEC Cergy, 10 et 11 octobre 2026.
+
+Track 2 : Defenders Augmented
+
+## Problème
+
+A compléter.
+
+## Solution
+
+A compléter.
+
+## Démo
+
+A compléter (scénario d'attaque, puis comment notre solution la bloque).
+
+## Lancer le projet
+
+```bash
+cp .env.example .env   # puis renseigner les clés
+./start.sh
+```
+
+## Structure
+
+```
+backend/    API et logique de détection
+frontend/   dashboard de démo
+demo/       scénario d'attaque scripté pour le pitch
+docs/       schéma d'architecture, slides
+```
+
+## Sécurité du repo
+
+Les secrets ne sont jamais commités : `.env` est ignoré et chaque commit est scanné par `ggshield` (GitGuardian) via pre-commit.
+
+## Equipe
+
+Team CFF
+>>>>>>> 0d68ab7efded46cfdb2fc95709906eeddf996150
