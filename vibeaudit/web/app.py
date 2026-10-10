@@ -49,6 +49,7 @@ async def start_audit(request: Request):
         body = {}
     repo_url = (body.get("repo_url") or "").strip()
     app_url = (body.get("url") or "").strip()
+    supabase_advisor = (body.get("supabase_advisor") or "").strip()[:20000]
     consent = bool(body.get("owner_consent"))
 
     if not repo_url and not app_url:
@@ -63,7 +64,8 @@ async def start_audit(request: Request):
     if not consent:
         raise HTTPException(400, "You must confirm you own this project or are authorized to test it.")
 
-    job = STORE.create(repo_url or None, app_url or None, None, _client_ip(request), consent=True)
+    job = STORE.create(repo_url or None, app_url or None, None, _client_ip(request), consent=True,
+                       supabase_advisor=supabase_advisor or None)
     return {"audit_id": job.id}
 
 

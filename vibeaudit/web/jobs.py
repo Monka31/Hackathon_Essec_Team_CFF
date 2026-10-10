@@ -102,7 +102,7 @@ class JobStore:
 
     # --- cycle de vie ---
     def create(self, repo_url: Optional[str], app_url: Optional[str], github_token: Optional[str],
-               client_ip: str, consent: bool) -> Job:
+               client_ip: str, consent: bool, supabase_advisor: Optional[str] = None) -> Job:
         job = Job(id=secrets.token_urlsafe(9), repo_url=repo_url, app_url=app_url, created_at=_now())
         steps = []
         if repo_url:
@@ -110,17 +110,22 @@ class JobStore:
             steps += list(SCANNERS)
         if app_url:
             steps += list(URL_SCANNERS)
+        if supabase_advisor:
+            steps.append("supabase_paste")
         steps += ["ai", "report"]
         job.steps = {s: {"status": "pending", "message": "", "label": LABELS.get(s, s)} for s in steps}
         job.steps.get("clone", {}).update(label="Clonage du repo GitHub")
         job.steps["report"]["label"] = "Rapport"
         job.steps["ai"]["label"] = "Explications IA (4 niveaux)"
+        if "supabase_paste" in job.steps:
+            job.steps["supabase_paste"]["label"] = "Supabase Security Advisor (collé)"
         with self.lock:
             self.jobs[job.id] = job
         self.save(job)
         audit_log("job_created", job=job.id, ip=client_ip, repo=repo_url, url=app_url,
-                  owner_consent=consent, private_repo_token=bool(github_token))
-        self.pool.submit(self._run, job, github_token)
+                  owner_consent=consent, private_repo_token=bool(github_token),
+                  supabase_paste=bool(supabase_advisor))
+        self.pool.submit(self._run, job, github_token, supabase_advisor)
         return job
 
     def _step(self, job: Job, name: str, status: str, message: str = "") -> None:
@@ -169,7 +174,7 @@ class JobStore:
             job.score, job.grade, job.counts = report["score"], report["grade"], report["counts"]
         self.save(job)
 
-    def _run(self, job: Job, github_token: Optional[str]) -> None:
+    def _run(self, job: Job, github_token: Optional[str], supabase_advisor: Optional[str] = None) -> None:
         job.status = "running"
         self.save(job)
         workdir = None
@@ -196,6 +201,19 @@ class JobStore:
                 runs += run_url_scanners(job.app_url, skip={"snyk_dast"},
                                          progress=lambda n, s, m: self._step(job, n, s, m))
                 dast_pending = "snyk_dast" in job.steps
+
+            if supabase_advisor and "supabase_paste" in job.steps:
+                self._step(job, "supabase_paste", "running", "lecture du rapport collé")
+                try:
+                    from ..scanners import supabase as _sb
+                    from ..core.models import ScannerRun
+                    sb_findings = _sb.parse_pasted(supabase_advisor)
+                    r = ScannerRun(name="supabase_paste", status="ok",
+                                   message=f"{len(sb_findings)} résultat(s)", findings=sb_findings)
+                    runs.append(r)
+                    self._step(job, "supabase_paste", "ok", f"{len(sb_findings)} problème(s) de base de données")
+                except Exception as e:
+                    self._step(job, "supabase_paste", "error", f"rapport illisible : {str(e)[:150]}")
 
             self._write_report(job, runs, final=False)             # rapport brut tout de suite
             self._step(job, "report", "running", "rapport brut prêt, explications IA en cours")

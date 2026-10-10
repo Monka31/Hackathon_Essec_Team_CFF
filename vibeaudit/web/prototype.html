@@ -704,6 +704,10 @@ function screenStart() {
         <button class="btn" type="submit">Start my free audit</button>
       </div>
       <input id="repo" type="url" placeholder="GitHub repo (optional) : https://github.com/you/project" autocomplete="off" style="height:52px;padding:0 24px;border:2px solid var(--line);border-radius:999px;font-size:16px">
+      <details style="margin-top:4px">
+        <summary class="small" style="cursor:pointer">Using Supabase? Paste your Security Advisor report (optional)</summary>
+        <textarea id="supabase" placeholder="Supabase dashboard > Advisors > Security Advisor : paste the JSON or the copied text here. We never ask for your token." style="width:100%;min-height:120px;margin-top:8px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;font-family:var(--mono);font-size:13px"></textarea>
+      </details>
       <div class="consent"><input id="consent" type="checkbox"><label for="consent">I own this app and authorize the audit. We only test apps you can prove you own.</label></div>
       <div class="err" id="err" role="alert"></div>
     </form>
@@ -734,7 +738,8 @@ function screenStart() {
     err.textContent = '';
     const btn = e.target.querySelector('button'); btn.disabled = true; btn.textContent = 'Starting…';
     try {
-      const { audit_id } = await api.startAudit({ type: 'quick', url: urlOk ? url : '', repo_url: repoOk ? repo : '', owner_consent: true });
+      const supa = (document.getElementById('supabase') || {}).value || '';
+      const { audit_id } = await api.startAudit({ type: 'quick', url: urlOk ? url : '', repo_url: repoOk ? repo : '', supabase_advisor: supa.trim(), owner_consent: true });
       state.lastAuditId = audit_id;
       go('#/scan/' + audit_id);
     } catch (ex) { err.textContent = 'The audit could not start: ' + ex.message; btn.disabled = false; btn.textContent = 'Start my free audit'; }

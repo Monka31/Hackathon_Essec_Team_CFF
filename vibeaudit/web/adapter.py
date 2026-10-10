@@ -107,7 +107,8 @@ STEP_EN = {"clone": "Cloning the GitHub repo", "snyk_code": "Snyk Code (code)",
            "snyk_deps": "Snyk Open Source (dependencies)", "semgrep": "Semgrep (code)",
            "gitleaks": "Gitleaks (secrets)", "npm_audit": "npm audit (dependencies)",
            "supabase": "Supabase Advisor (database)", "web_passive": "Passive tests (online app)",
-           "snyk_dast": "Snyk API & Web (DAST)", "ai": "AI explanations (4 levels)", "report": "Report"}
+           "snyk_dast": "Snyk API & Web (DAST)", "ai": "AI explanations (4 levels)", "report": "Report",
+           "supabase_paste": "Supabase Security Advisor (database)"}
 STATUS_EN = {"pending": "queued", "running": "running…", "ok": "done", "skipped": "skipped", "error": "error"}
 
 

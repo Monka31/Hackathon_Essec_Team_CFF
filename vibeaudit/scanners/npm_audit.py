@@ -34,7 +34,7 @@ def scan(root: Path, timeout: int = 300) -> List[Finding]:
     vulns = data.get("vulnerabilities") or {}
     # NPM_AUDIT_MODE=direct : une ligne par dépendance directe (celle que le dev doit mettre à jour),
     # avec les failles des sous-dépendances regroupées dedans. "all" (défaut) : une ligne par paquet.
-    direct_mode = os.getenv("NPM_AUDIT_MODE", "all") == "direct"
+    direct_mode = os.getenv("NPM_AUDIT_MODE", "direct") != "all"
 
     def collect(name, seen):
         # Toutes les failles (avis) d'un paquet et de ses sous-dépendances vulnérables

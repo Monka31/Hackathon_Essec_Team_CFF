@@ -33,4 +33,5 @@ LABELS = {
     "clone": "Clonage du repo",
     "ai": "Explications IA",
     "report": "Rapport",
+    "supabase_paste": "Supabase Security Advisor (collé)",
 }
