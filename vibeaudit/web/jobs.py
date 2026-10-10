@@ -179,22 +179,42 @@ class JobStore:
         self.save(job)
         workdir = None
         runs = []
+        repo_ok = False
         context = {"url_appli": job.app_url}
         try:
             if job.repo_url:
+                # Un clonage qui échoue (repo privé, trop gros, lien invalide) ne doit JAMAIS
+                # faire échouer tout l'audit : on dégrade proprement et on continue avec l'URL + Supabase.
                 workdir = Path(tempfile.mkdtemp(prefix="vibeaudit-"))
                 root = workdir / "repo"
                 self._step(job, "clone", "running", "clonage en cours")
-                clone_repo(job.repo_url, root, github_token)
-                github_token = None  # on oublie le token dès qu'il ne sert plus
-                size = _dir_size_mb(root)
-                self._step(job, "clone", "ok", f"repo cloné ({size} Mo)")
-                if size > MAX_REPO_MB:
-                    raise RuntimeError(f"repo trop gros ({size} Mo, max {MAX_REPO_MB})")
-                runs += run_repo_scanners(root, progress=lambda n, s, m: self._step(job, n, s, m))
-                context = project_context(root, job.app_url)
-                shutil.rmtree(workdir, ignore_errors=True)  # le code n'est plus utile : suppression immédiate
-                self._step(job, "clone", "ok", f"repo cloné ({size} Mo), analysé puis supprimé du serveur")
+                try:
+                    token = github_token or os.getenv("GITHUB_TOKEN") or None
+                    clone_repo(job.repo_url, root, token)
+                    size = _dir_size_mb(root)
+                    if size > MAX_REPO_MB:
+                        raise RuntimeError(f"repo trop gros ({size} Mo, max {MAX_REPO_MB})")
+                    self._step(job, "clone", "ok", f"repo cloné ({size} Mo)")
+                    runs += run_repo_scanners(root, progress=lambda n, s, m: self._step(job, n, s, m))
+                    context = project_context(root, job.app_url)
+                    repo_ok = True
+                    self._step(job, "clone", "ok", f"repo cloné ({size} Mo), analysé puis supprimé du serveur")
+                except Exception as ce:
+                    reason = _redact_token(str(ce), github_token or os.getenv("GITHUB_TOKEN"))
+                    self._step(job, "clone", "error", f"analyse du code non effectuée : {reason[:150]}")
+                    for sc in ("snyk_code", "snyk_deps", "semgrep", "gitleaks", "npm_audit"):
+                        if sc in job.steps and job.steps[sc]["status"] == "pending":
+                            self._step(job, sc, "skipped", "repo non analysé (clonage impossible)")
+                finally:
+                    github_token = None  # on oublie le token dès qu'il ne sert plus
+                    if workdir:
+                        shutil.rmtree(workdir, ignore_errors=True)  # le code n'est plus utile : suppression immédiate
+                        workdir = None
+
+            # S'il n'y avait que le repo et qu'il n'a pas pu être cloné, il n'y a rien d'autre à analyser.
+            if job.repo_url and not repo_ok and not job.app_url and not supabase_advisor:
+                raise RuntimeError("repo privé ou injoignable et rien d'autre à analyser : rendre le repo public, "
+                                   "ajouter une URL d'application, ou coller un rapport Supabase")
 
             dast_pending = False
             if job.app_url:
