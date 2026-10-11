@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List
 
 from ..core.models import Evidence, Finding, FindingList
-from .base import ScannerError, read_snippet, require_binary, run_cmd, to_rel
+from .base import EXCLUDED_DIRS, ScannerError, read_snippet, require_binary, run_cmd, to_rel
 
 NAME = "semgrep"
 
@@ -38,17 +38,23 @@ def _category(check_id: str) -> str:
     return "code"
 
 
-def scan(root: Path, timeout: int = 900) -> List[Finding]:
-    require_binary("semgrep", "brew install semgrep")
+def configs() -> List[str]:
+    """Jeux de règles utilisés, partagés avec la vérification des correctifs (web/fix_checks.py)."""
     rules_dir = os.getenv("SEMGREP_RULES_DIR")
     if rules_dir:
-        configs = [rules_dir]
-    else:
-        configs = [c.strip() for c in os.getenv("SEMGREP_CONFIGS", ",".join(DEFAULT_CONFIGS)).split(",") if c.strip()]
+        return [rules_dir]
+    return [c.strip() for c in os.getenv("SEMGREP_CONFIGS", ",".join(DEFAULT_CONFIGS)).split(",") if c.strip()]
+
+
+def scan(root: Path, timeout: int = 900) -> List[Finding]:
+    require_binary("semgrep", "brew install semgrep")
+    rule_sets = configs()
 
     cmd = ["semgrep", "scan", "--json", "--quiet", "--metrics=off", "--timeout", "30"]
-    for c in configs:
+    for c in rule_sets:
         cmd += ["--config", c]
+    for d in sorted(EXCLUDED_DIRS):  # ne pas perdre de temps sur le code généré (filtré ensuite de toute façon)
+        cmd += ["--exclude", d]
     cmd.append(".")
     # 0 = rien trouvé, 1 = failles trouvées
     proc = run_cmd(cmd, cwd=root, timeout=timeout, ok_codes=(0, 1))
@@ -66,7 +72,7 @@ def scan(root: Path, timeout: int = 900) -> List[Finding]:
         raise ScannerError("règles Semgrep inutilisables : " + str(fatal[0].get("message", ""))[:250])
 
     scanned = len((data.get("paths") or {}).get("scanned") or [])
-    findings: List[Finding] = FindingList(note=f"{scanned} fichier(s) analysé(s), règles : {', '.join(configs)[:120]}")
+    findings: List[Finding] = FindingList(note=f"{scanned} fichier(s) analysé(s), règles : {', '.join(rule_sets)[:120]}")
     if scanned == 0:
         raise ScannerError("Semgrep n'a analysé aucun fichier (langage non supporté ou règles introuvables)")
     for res in data.get("results", []):

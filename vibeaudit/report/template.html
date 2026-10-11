@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Audit {{ r.target }} : {{ r.score }}/100</title>
+<title>Vouch · Audit {{ r.target }} : {{ r.score }}/100</title>
 <style>
   :root {
     --bg: #f6f7f9; --card: #ffffff; --text: #1b1f24; --muted: #5b6573; --line: #e3e6ea;
@@ -93,6 +93,20 @@
       </p>
     </div>
   </section>
+
+  {% if r.comparison %}{% set c = r.comparison %}
+  <section class="card" style="margin-top:16px">
+    <h2>Évolution depuis l'audit précédent</h2>
+    <div class="desc">
+      Score : {{ c.previous_score if c.previous_score is not none else '?' }} → <b>{{ r.score }}</b>
+      ({{ c.previous_generated_at or 'audit précédent' }})<br>
+      ✅ <b>{{ c.fixed_count }}</b> corrigée(s) · ⏳ <b>{{ c.persisting_count }}</b> toujours là · 🆕 <b>{{ c.new_count }}</b> nouvelle(s)
+      {% if c.unchecked_count %} · {{ c.unchecked_count }} non revérifiée(s) (scanner absent cette fois){% endif %}
+      {% if c.scope_note %}<br><i>Attention, comparaison à nuancer : {{ c.scope_note }}</i>{% endif %}
+    </div>
+    {% if c.fixed %}<ul>{% for f in c.fixed[:30] %}<li>✅ {{ f.title }} <span class="loc">{{ f.file or '' }}</span></li>{% endfor %}</ul>{% endif %}
+  </section>
+  {% endif %}
 
   {% if r.ai_summary %}
   <section class="card ai-summary" style="margin-top:16px">

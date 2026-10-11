@@ -1,4 +1,4 @@
-"""Traduit le rapport interne vers le format attendu par le nouveau visuel (Syberia).
+"""Traduit le rapport interne vers le format attendu par le nouveau visuel (Vouch).
 
 Contrat (voir prototype.html [CONTRACT]) :
   Finding = { id, project_id, severity, group: code|supply_chain|workflow,
@@ -123,7 +123,7 @@ SCANNER_LABELS = {
     "trufflehog": "TruffleHog (verified secrets)",
     "npm_audit": "npm audit (dependency database)", "snyk_code": "Snyk Code (SAST)",
     "snyk_deps": "Snyk Open Source (SCA)", "snyk_dast": "Snyk API & Web (DAST)",
-    "web_passive": "Syberia passive web tests", "supabase_paste": "Supabase Security Advisor",
+    "web_passive": "Vouch passive web tests", "supabase_paste": "Supabase Security Advisor",
     "supabase": "Supabase Security Advisor",
 }
 
@@ -174,6 +174,10 @@ def to_prototype(report: Dict[str, Any], project_id: Optional[str] = None,
     pid = project_id or project_id_for(repo_url, app_url)
     pname = project_name or project_name_for(repo_url, app_url)
     findings, ignored = [], []
+    from ..core import persistence
+    from .fixes import OUTCOMES
+    store = persistence.load(pid)
+    generated = report.get("generated_at") or ""
     for f in report.get("findings", []):
         if f.get("ai_verdict") == "false_positive_suspected":
             ignored.append({
@@ -182,7 +186,37 @@ def to_prototype(report: Dict[str, Any], project_id: Optional[str] = None,
                 "reason": f.get("confidence_reason") or f.get("attack_scenario") or "Likely not exploitable here.",
             })
         else:
-            findings.append(_finding(f, pid, "Today"))
+            found = {"new": "New since last audit", "persisting": "Still open since last audit"}.get(
+                f.get("change"), "Today")
+            item = _finding(f, pid, found)
+            item["change"] = f.get("change")
+            att = store["attempts"].get(f["id"])
+            if att and (att.get("last_at") or "") > generated:
+                # Correctif proposé APRÈS cet audit : on attend le prochain audit pour juger
+                item["last_fix"] = {"status": att.get("last_outcome"), "pr": att.get("last_pr"),
+                                    "label": OUTCOMES.get(att.get("last_outcome", ""), "")}
+            elif att:
+                # Déjà tenté avant cet audit, et toujours là : faille persistante, avec diagnostic
+                item["persistence"] = persistence.diagnose(dict(f, rule_id=item.get("rule_id")), att)
+                item["fix_attempts"] = att.get("count", 0)
+            acc = store["accepted"].get(f["id"])
+            if acc:
+                item["fix_status"] = "accepted"
+                item["accepted"] = acc
+            findings.append(item)
+    comp = report.get("comparison")
+    comparison = None
+    if comp:
+        # Les failles de l'audit précédent qui ont disparu : affichées comme corrigées (fix_status 'verified')
+        for old in comp.get("fixed", []):
+            item = _finding(old, pid, "Fixed since last audit")
+            item["fix_status"] = "verified"
+            item["change"] = "fixed"
+            findings.append(item)
+        comparison = {k: comp.get(k) for k in ("previous_job_id", "previous_generated_at", "previous_score",
+                                                "fixed_count", "persisting_count", "new_count",
+                                                "unchecked_count", "scope_note")}
+        comparison["score"] = report.get("score")
     target = app_url or repo_url or report.get("target") or ""
     return {
         "audit_id": report.get("job_id") or "",
@@ -196,6 +230,7 @@ def to_prototype(report: Dict[str, Any], project_id: Optional[str] = None,
         "ai_summary": report.get("ai_summary"),
         "findings": findings,
         "ignored": ignored,
+        "comparison": comparison,
     }
 
 
@@ -244,6 +279,12 @@ def status_payload(job: Dict[str, Any]) -> Dict[str, Any]:
                 events.append({"text": f"{label}: {m.group(1)} issue(s) found", "kind": "alert"})
             else:
                 events.append({"text": f"{label} — {STATUS_EN.get(st['status'], st['status'])}", "kind": "info"})
+    # Ce que l'IA est en train de faire, au fil de l'eau (messages « » » écrits par llm/explain.py)
+    ai_lines = [l.split("» ", 1)[1].strip() for l in job.get("log", []) if "» " in l]
+    if ai_lines:
+        ai_idx = next((i for i, e in enumerate(events) if e["text"].startswith(STEP_EN.get("ai", "~"))), len(events))
+        narrative = [{"text": t, "kind": "ai"} for t in ai_lines[-30:]]
+        events = events[:ai_idx] + narrative + events[ai_idx + 1:]
     return {
         "status": status,
         "progress": int(100 * len(done) / total),

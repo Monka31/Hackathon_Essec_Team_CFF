@@ -16,8 +16,8 @@ from ..core.models import Evidence, Finding
 from ..core.net import check_public_url, fetch
 
 NAME = "active_probe"
-UA = "Syberia-active-probe"
-MARKER = "syberia7xq9z"
+UA = "Vouch-active-probe"
+MARKER = "vouch7xq9z"
 REDIRECT_PARAMS = ["next", "url", "redirect", "return", "returnTo", "dest", "destination", "continue"]
 MAX_SECONDS = 25
 
@@ -59,7 +59,7 @@ def scan_url(url: str, timeout: int = 12) -> List[Finding]:
     # 2. Open redirect. Valeur externe inoffensive, on ne suit PAS la redirection.
     for param in REDIRECT_PARAMS:
         try:
-            probe = _with_query(url, {param: "https://example.com/syberia"})
+            probe = _with_query(url, {param: "https://example.com/vouch"})
             r = fetch(probe, timeout=timeout, follow_redirects=False)
             loc = r.headers.get("location", "")
             if r.status in (301, 302, 303, 307, 308) and "example.com" in loc:
@@ -77,12 +77,12 @@ def scan_url(url: str, timeout: int = 12) -> List[Finding]:
     # 3. CORS trop permissif. Requête avec un Origin inoffensif, lecture seule.
     try:
         check_public_url(url)
-        req = urllib.request.Request(url, headers={"User-Agent": UA, "Origin": "https://syberia-probe.example"})
+        req = urllib.request.Request(url, headers={"User-Agent": UA, "Origin": "https://vouch-probe.example"})
         resp = urllib.request.urlopen(req, timeout=timeout)
         h = {k.lower(): v for k, v in resp.headers.items()} if resp.headers else {}
         acao = h.get("access-control-allow-origin", "")
         creds = h.get("access-control-allow-credentials", "").lower()
-        if acao == "https://syberia-probe.example" and creds == "true":
+        if acao == "https://vouch-probe.example" and creds == "true":
             out.append(_f("CORS reflects any origin with credentials", "high", url,
                           "The server echoed an arbitrary Origin and allows credentials. Any website could then read this "
                           "app's authenticated responses on behalf of a logged-in user.",
@@ -95,7 +95,7 @@ def scan_url(url: str, timeout: int = 12) -> List[Finding]:
 
     # 4. Erreurs bavardes. On demande une page inexistante et on cherche une stack trace.
     try:
-        probe = url.rstrip("/") + "/syberia-notfound-" + MARKER
+        probe = url.rstrip("/") + "/vouch-notfound-" + MARKER
         body = fetch(probe, timeout=timeout).body.decode("utf-8", "replace")[:20000]
         signals = ["Traceback (most recent call last)", "Werkzeug Debugger", '.py", line', "java.lang.",
                    "SQLSTATE", "ORA-00", "Microsoft .NET", "NoMethodError", "stack trace"]

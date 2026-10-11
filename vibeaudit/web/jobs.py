@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from ..core.compare import compare as compare_reports, same_scope
 from ..core.runner import build_report, run_repo_scanners, run_url_scanners
 from ..llm.context import project_context
 from ..llm.explain import enrich_report
@@ -159,6 +160,22 @@ class JobStore:
             job.log.append(f"{datetime.now().strftime('%H:%M:%S')} {LABELS.get(name, name)} : {message or status}")
         self.save(job)
 
+    def _previous_report(self, job: Job) -> Optional[Dict[str, Any]]:
+        """Dernier audit terminé du même projet, pour le même utilisateur (sinon None)."""
+        if not job.user_db_id or not job.project_id:
+            return None
+        try:
+            from . import db
+            for a in db.list_user_audits(job.user_db_id):  # du plus récent au plus ancien
+                if a.get("project_id") != job.project_id or a.get("id") == job.id or a.get("status") != "done":
+                    continue
+                p = self.report_json(a["id"])
+                if p:
+                    return json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            return None  # la comparaison est un bonus : elle ne doit jamais faire échouer l'audit
+        return None
+
     def _write_report(self, job: Job, runs, final: bool, ai: bool = False, context=None) -> None:
         report = build_report(runs, {
             "target": (job.repo_url or job.app_url or "").rstrip("/").split("/")[-1],
@@ -167,6 +184,14 @@ class JobStore:
         report.pop("_findings", None)
         report["job_id"] = job.id
         report["complete"] = final
+        prev = self._previous_report(job)
+        if prev:
+            # Bilan corrigées / toujours là / nouvelles, par empreinte stable (pas par numéro de ligne)
+            ran_ok = {s.get("name") for s in report.get("scanners", []) if s.get("status") == "ok"}
+            report["comparison"] = compare_reports(prev, report["findings"], ran_ok)
+            scope = same_scope(prev, report.get("scanners", []))
+            if scope:
+                report["comparison"]["scope_note"] = scope
         cache = self.ai_cache.setdefault(job.id, {})
         for f in report["findings"]:
             f.update(cache.get(f["id"], {}))

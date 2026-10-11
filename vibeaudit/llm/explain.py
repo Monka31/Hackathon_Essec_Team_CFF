@@ -172,7 +172,23 @@ def enrich_report(report: Dict[str, Any], context: Optional[Dict[str, Any]] = No
     t0 = time.time()
     done, errors = 0, []
 
+    def where(f):
+        loc = (f.get("file") or "").split("://")[-1]
+        loc = loc if len(loc) <= 48 else "…" + loc[-47:]
+        return f" in {loc}" if loc else ""
+
+    def narrate(f, r):
+        # Messages en anglais, lisibles par l'utilisateur, préfixés « » » pour l'écran d'analyse
+        verdict = (r or {}).get("ai_verdict")
+        what = (f.get("title") or "this issue")[:70]
+        if verdict == "false_positive_suspected":
+            return f"» Ruled out a likely false positive: {what}"
+        if verdict == "confirmed":
+            return f"» Confirmed a real risk: {what}{where(f)}"
+        return f"» Explained in 4 levels: {what}"
+
     def work(f):
+        say(f"» Reading the code around “{(f.get('title') or 'an issue')[:60]}”{where(f)}")
         return f, explain_one(f, context)
 
     try:
@@ -182,6 +198,7 @@ def enrich_report(report: Dict[str, Any], context: Optional[Dict[str, Any]] = No
                 f0, r0 = work(findings[0])
                 f0.update(r0)
                 done += 1
+                say(narrate(f0, r0))
                 say(f"{done}/{len(findings)} faille(s) expliquée(s)")
             except LLMUnavailable:
                 raise
@@ -196,6 +213,7 @@ def enrich_report(report: Dict[str, Any], context: Optional[Dict[str, Any]] = No
                     f, r = fut.result()
                     f.update(r)
                     done += 1
+                    say(narrate(f, r))
                     say(f"{done}/{len(findings)} faille(s) expliquée(s)")
                 except LLMUnavailable:
                     raise
@@ -203,6 +221,7 @@ def enrich_report(report: Dict[str, Any], context: Optional[Dict[str, Any]] = No
                     errors.append(f"{type(e).__name__}: {str(e)[:150]}")
                     fail_f = findings[1 + futures.index(fut)]
                     fail_f["ai_error"] = errors[-1]
+        say("» Writing the summary and choosing your top priorities")
         try:
             s = summarize(report, context)
             if s:

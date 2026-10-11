@@ -10,7 +10,7 @@ A compléter.
 
 ## Solution
 
-**vibeaudit / Syberia** : audit de sécurité des projets vibe-codés. On fournit un dépôt GitHub, un ZIP ou l'URL du site. Les scanners statiques et contrôles passifs remontent des constats; l'IA les explique et peut proposer des edits ciblés dans une Pull Request GitHub. Les edits proposés ne sont pas exécutés ni vérifiés automatiquement; l'humain relit et fusionne.
+**Vouch** (code interne : `vibeaudit`) : audit de sécurité des projets vibe-codés. On fournit un dépôt GitHub, un ZIP ou l'URL du site. Les scanners statiques et contrôles passifs remontent des constats; l'IA les explique et peut proposer des edits ciblés dans une Pull Request GitHub. Chaque correctif proposé est re-testé (re-scan, intégrité des fichiers, npm audit pour les dépendances) avant l'ouverture de la PR ; l'humain relit et fusionne.
 
 ## Démo
 
