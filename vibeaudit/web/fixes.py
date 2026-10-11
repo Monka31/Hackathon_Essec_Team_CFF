@@ -519,7 +519,10 @@ def _do_deploy(batch_id: str) -> Dict[str, Any]:
         return {"error": "Could not read the repository's default branch."}
     branch = f"vibeaudit/fixes-{batch_id}"
     if not github_app.create_branch(owner, repo, branch, sha, token):
-        return {"error": "Could not create the fix branch (it may already exist)."}
+        # La branche existe déjà (nouvelle tentative sur le même lot) : on en prend une unique.
+        branch = f"vibeaudit/fixes-{batch_id}-{secrets.token_urlsafe(3)}"
+        if not github_app.create_branch(owner, repo, branch, sha, token):
+            return {"error": "Could not create the fix branch."}
 
     findings = b["findings"][:MAX_PER_SESSION]
     b["deploy_started"] = time.time()
