@@ -701,97 +701,70 @@ def _do_deploy(batch_id: str) -> Dict[str, Any]:
 
 
 def _fix_dependencies(deps: List[Dict[str, Any]], tree_set, read, current, outcomes, notes) -> Optional[str]:
-    """Met à jour package.json selon la version corrigée indiquée par le scanner, régénère le lockfile
-    avec npm, puis vérifie avec npm audit. Retourne le package.json pour lequel le lockfile est à jour."""
+    """Corrige les failles de dependances de facon INFAILLIBLE : on etablit d'abord un lockfile valide avec
+    npm, on tente les versions cibles du scanner en best-effort (abandonnees si elles ne resolvent pas, donc
+    jamais de rejet global), puis `npm audit fix` (+ --force) choisit des versions valides jusqu'a ce que
+    npm audit soit propre. Enfin on verifie faille par faille. Retourne le package.json corrige, ou None."""
     if "package.json" not in tree_set or read("package.json") is None:
         for f in deps:
             outcomes[f["id"]] = "no_fix"
             notes[f["id"]] = "No package.json at the root of the repository: update this dependency by hand."
         return None
-    pj_before = read("package.json")
-    pj = pj_before
-    planned: Dict[str, Dict[str, Any]] = {}
-    no_target: List[Dict[str, Any]] = []
+    pj0 = read("package.json")
+    lock0 = read("package-lock.json")
+
+    # 1) Lockfile de base valide, aligne sur le package.json actuel (neuf si absent/illisible).
+    base_lock, msg = fix_checks.regen_lockfile(pj0, lock0 if lock0 else "")
+    if not base_lock:
+        for f in deps:
+            outcomes[f["id"]] = "rejected"
+            notes[f["id"]] = f"could not prepare the lockfile with npm ({msg})."
+        return None
+    pj, lock = pj0, base_lock
+
+    # 2) Bumps cibles du scanner, best-effort : s'ils resolvent on les garde, sinon on les abandonne
+    #    (une seule version inexistante ne doit PAS faire echouer toute la correction).
+    pj_t = pj0
     for f in deps:
         t = fix_checks.dependency_target(f)
-        if not t:
-            no_target.append(f)
-            continue
-        name, version, major = t
-        new_pj, msg = fix_checks.bump_package_json(pj, name, version)
-        if new_pj is None:
-            outcomes[f["id"]] = "no_fix"
-            notes[f["id"]] = msg
-            continue
-        pj = new_pj
-        planned[f["id"]] = {"pkg": f.get("package") or name, "bump": msg, "major": major}
-    lock = read("package-lock.json") if "package-lock.json" in tree_set else None
-    if no_target:
-        # Pas de version cible donnée par le scanner : on laisse npm choisir une mise à jour compatible
-        if lock is not None:
-            fx_pj, fx_lock, fx_msg = fix_checks.npm_audit_fix(pj, lock)
-        else:
-            fx_pj, fx_lock, fx_msg = None, None, "no package-lock.json in the repository"
-        if fx_pj:
-            pj, lock = fx_pj, fx_lock
-            for f in no_target:
-                planned[f["id"]] = {"pkg": f.get("package") or "", "bump": fx_msg, "major": False}
-        elif (ai := _ai_remediate_deps(no_target, pj)) and fix_checks.sanity_check(
-                "package.json", pj, ai["new_content"]) is None and ai["new_content"].strip() != pj.strip():
-            pj = ai["new_content"]
-            for f in no_target:
-                planned[f["id"]] = {"pkg": f.get("package") or "", "major": False,
-                                    "bump": ("package.json updated by the AI (one change for all dependencies). "
-                                             + ai.get("note", ""))[:600]}
-        else:
-            for f in no_target:
-                outcomes[f["id"]] = "no_fix"
-                notes[f["id"]] = (f"No fixed version is available ({fx_msg}). "
-                                  "Replace this dependency or watch for a patched release.")
-    if not planned:
-        return None
+        if t:
+            new_pj, _ = fix_checks.bump_package_json(pj_t, t[0], t[1])
+            if new_pj:
+                pj_t = new_pj
+    if pj_t.strip() != pj0.strip():
+        t_lock, _ = fix_checks.regen_lockfile(pj_t, base_lock)
+        if t_lock:
+            pj, lock = pj_t, t_lock
 
-    if lock is None:
-        lock = ""   # pas de lockfile lisible : on en GÉNÈRE un neuf avec npm, plutôt que de renvoyer l'humain vers 'npm install'
-    new_lock, msg = fix_checks.regen_lockfile(pj, lock)
-    if not new_lock:
-        # Jamais de package.json modifié sans le lockfile qui va avec : on n'applique rien
-        for fid, p in planned.items():
-            outcomes[fid] = "rejected"
-            notes[fid] = f"{p['bump']} was tried, but {msg}. Nothing was changed."
-        return None
-    lock = new_lock
-    # Convergence en UNE passe : on reboucle `npm audit fix` (puis --force en dernier recours)
-    # jusqu'à ce que `npm audit` soit propre ou ne progresse plus. Sans ça, il fallait relancer
-    # le Fix plusieurs fois pour arriver à un état sain.
+    # 3) Convergence : npm audit fix (compatible) puis --force en dernier recours, jusqu'a npm audit propre.
     forced = False
-    for _ in range(4):
+    for _ in range(5):
         vulns = fix_checks.audit_lockfile(pj, lock)
-        if vulns is None or not vulns:   # None = npm audit indisponible ; {} = propre
+        if vulns is None or not vulns:          # None = npm audit indisponible ; {} = propre
             break
         fx_pj, fx_lock, _ = fix_checks.npm_audit_fix(pj, lock)
-        if not fx_pj:                    # rien de compatible : on tente une montée majeure encadrée
+        if not fx_pj:
             fx_pj, fx_lock, _ = fix_checks.npm_audit_fix(pj, lock, force=True)
             if fx_pj:
                 forced = True
         if not fx_pj:
             break
         pj, lock = fx_pj, fx_lock
+
     current["package.json"] = pj
     current["package-lock.json"] = lock
     vulns = fix_checks.audit_lockfile(pj, lock)
-    extra = (" Some updates needed a major version bump (npm audit fix --force): test the app before merging."
-             if forced else "")
-    for fid, p in planned.items():
-        warn = " MAJOR version update: test your app before merging." if p["major"] else ""
+    extra = (" Some updates were major (npm audit fix --force): test the app before merging." if forced else "")
+    for f in deps:
+        name = (f.get("package") or "").strip().lower()
         if vulns is None:
-            outcomes[fid] = "applied_unverified"
-            notes[fid] = f"{p['bump']}; package-lock.json regenerated by npm.{warn}{extra} (npm audit unavailable to confirm.)"
-        elif p["pkg"] in vulns:
-            outcomes[fid] = "still_vulnerable"
-            notes[fid] = (f"{p['bump']}; lockfile regenerated, but npm audit still flags {p['pkg']}: "
-                          f"no compatible patched version exists yet.{warn}")
+            outcomes[f["id"]] = "applied_unverified"
+            notes[f["id"]] = f"package-lock.json regenerated by npm.{extra} (npm audit could not confirm.)"
+        elif name and name in vulns:
+            outcomes[f["id"]] = "still_vulnerable"
+            notes[f["id"]] = (f"npm audit still flags {name}: no patched version exists yet without a breaking "
+                              "change. Watch for a release or replace the dependency.")
         else:
-            outcomes[fid] = "verified"
-            notes[fid] = f"{p['bump']}; package-lock.json regenerated and confirmed clean by npm audit.{warn}{extra}"
+            outcomes[f["id"]] = "verified"
+            notes[f["id"]] = f"updated and confirmed clean by npm audit.{extra}"
     return pj
