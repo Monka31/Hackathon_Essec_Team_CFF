@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vouch · Audit de sécurité</title>
+{% include "_style.html" %}
+</head>
+<body>
+<main>
+  <h1>Audit de sécurité de ton projet</h1>
+  <div class="muted">Code, dépendances, secrets et appli en ligne : on trouve les failles et on t'explique comment les corriger.</div>
+
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+  <form class="card" method="post" action="/scan" autocomplete="off">
+    <label for="repo_url">Lien du repo GitHub <span class="hint">(public, ou privé avec un token)</span></label>
+    <input id="repo_url" name="repo_url" type="url" placeholder="https://github.com/compte/projet" value="{{ form.repo_url or '' }}">
+
+    <label for="app_url">URL de l'appli en ligne <span class="hint">(optionnel)</span></label>
+    <input id="app_url" name="app_url" type="url" placeholder="https://mon-appli.vercel.app" value="{{ form.app_url or '' }}">
+
+    <details style="margin-top:14px">
+      <summary class="muted" style="cursor:pointer">Repo privé ? Ajouter un token GitHub</summary>
+      <label for="github_token">Token GitHub <span class="hint">(fine-grained, lecture seule sur ce repo ; utilisé pour cloner puis oublié, jamais stocké)</span></label>
+      <input id="github_token" name="github_token" type="password" placeholder="github_pat_..." autocomplete="off">
+    </details>
+
+    {% if need_code %}
+    <label for="access_code">Code d'accès</label>
+    <input id="access_code" name="access_code" type="password" autocomplete="off">
+    {% endif %}
+
+    <label class="check">
+      <input type="checkbox" name="owner_consent" value="yes" required>
+      <span>Je certifie être propriétaire de ce projet et de ce site, ou disposer d'une autorisation écrite pour les tester.
+      <span class="hint">Tester un système sans autorisation est puni par la loi (article 323-1 du Code pénal). Cette déclaration est journalisée.</span></span>
+    </label>
+
+    <button type="submit">Lancer l'audit</button>
+  </form>
+
+  <p class="muted" style="margin-top:16px">Ce qu'on fait : on clone le repo dans un dossier temporaire supprimé à la fin, on n'exécute jamais ton code,
+  et sur ton site on n'envoie que des requêtes de visiteur (plus le scan Snyk API & Web si ton domaine y est vérifié).</p>
+</main>
+</body>
+</html>
