@@ -13,6 +13,10 @@ RUN ARCH=$([ "$TARGETARCH" = "arm64" ] && echo arm64 || echo x64) \
  && curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_${ARCH}.tar.gz" \
     | tar xz -C /usr/local/bin gitleaks
 
+# TruffleHog (secrets, avec vérification d'activité)
+RUN curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh \
+    | sh -s -- -b /usr/local/bin || echo "trufflehog install skipped"
+
 # Snyk CLI (binaire autonome, pas besoin de le télécharger au premier lancement)
 RUN ARCH=$([ "$TARGETARCH" = "arm64" ] && echo linux-arm64 || echo linux) \
  && curl -sSL -o /usr/local/bin/snyk "https://downloads.snyk.io/cli/stable/snyk-${ARCH}" \

@@ -30,7 +30,7 @@ def provider() -> str:
     return os.getenv("LLM_PROVIDER", "bedrock").lower()
 
 
-def _bedrock(system: str, prompt: str, max_tokens: int, schema: Optional[dict] = None):
+def _bedrock(system: str, prompt: str, max_tokens: int, schema: Optional[dict] = None, model: Optional[str] = None):
     try:
         import boto3
         from botocore.config import Config
@@ -38,7 +38,7 @@ def _bedrock(system: str, prompt: str, max_tokens: int, schema: Optional[dict] =
     except ImportError:
         raise LLMUnavailable("boto3 n'est pas installé (pip install -r requirements.txt)")
     region = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "us-west-2"
-    model = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-5")
+    model = model or os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-5")
     client = boto3.client("bedrock-runtime", region_name=region,
                           config=Config(connect_timeout=10, read_timeout=180, retries={"max_attempts": 2}))
     kwargs = dict(
@@ -139,12 +139,16 @@ def _fake(system: str, prompt: str, max_tokens: int, schema: Optional[dict] = No
     return out if schema else json.dumps(out)
 
 
-def complete(system: str, prompt: str, max_tokens: int = 1800, schema: Optional[dict] = None):
-    """Texte libre, ou dict si un schéma est donné (sortie structurée forcée)."""
+def complete(system: str, prompt: str, max_tokens: int = 1800, schema: Optional[dict] = None,
+             model: Optional[str] = None):
+    """Texte libre, ou dict si un schéma est donné (sortie structurée forcée).
+    model : identifiant de modèle Bedrock à utiliser à la place de celui par défaut (ex : modèle plus rapide)."""
     p = provider()
     if p in ("off", "none", ""):
         raise LLMUnavailable("IA désactivée (LLM_PROVIDER=off)")
-    fn = {"bedrock": _bedrock, "anthropic": _anthropic, "fake": _fake}.get(p)
+    if p == "bedrock":
+        return _bedrock(system, prompt, max_tokens, schema, model)
+    fn = {"anthropic": _anthropic, "fake": _fake}.get(p)
     if not fn:
         raise LLMUnavailable(f"LLM_PROVIDER inconnu : {p}")
     return fn(system, prompt, max_tokens, schema)

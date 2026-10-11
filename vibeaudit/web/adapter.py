@@ -9,6 +9,7 @@ Contrat (voir prototype.html [CONTRACT]) :
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -119,6 +120,7 @@ def _rich_summary(f: Dict[str, Any], expl: Dict[str, str]) -> str:
 
 SCANNER_LABELS = {
     "semgrep": "Semgrep (static analysis)", "gitleaks": "Gitleaks (secret scanning)",
+    "trufflehog": "TruffleHog (verified secrets)",
     "npm_audit": "npm audit (dependency database)", "snyk_code": "Snyk Code (SAST)",
     "snyk_deps": "Snyk Open Source (SCA)", "snyk_dast": "Snyk API & Web (DAST)",
     "web_passive": "Syberia passive web tests", "supabase_paste": "Supabase Security Advisor",
@@ -200,7 +202,8 @@ def to_prototype(report: Dict[str, Any], project_id: Optional[str] = None,
 # ----------------------------------------------------------------- statut live
 STEP_EN = {"clone": "Cloning the GitHub repo", "snyk_code": "Snyk Code (code)",
            "snyk_deps": "Snyk Open Source (dependencies)", "semgrep": "Reading your code (Semgrep)",
-           "gitleaks": "Looking for exposed secrets", "npm_audit": "Checking your dependencies",
+           "gitleaks": "Looking for exposed secrets", "trufflehog": "Deep secret scan (TruffleHog)",
+           "npm_audit": "Checking your dependencies",
            "supabase": "Supabase Advisor (database)", "web_passive": "Testing your app as an anonymous visitor",
            "snyk_dast": "Snyk API & Web (DAST)", "ai": "Writing your report in plain language",
            "report": "Finishing the report", "supabase_paste": "Checking who can read your database"}
@@ -214,6 +217,21 @@ def status_payload(job: Dict[str, Any]) -> Dict[str, Any]:
     total = max(1, len(order))
     status = {"queued": "running", "running": "running", "done": "done", "error": "failed"}.get(
         job.get("status"), "running")
+    # ETA basé sur le temps réellement écoulé par étape terminée (plus juste qu'une constante)
+    eta = 0
+    if status != "done":
+        remaining = total - len(done)
+        elapsed = 0.0
+        try:
+            started = datetime.fromisoformat(job.get("created_at"))
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            elapsed = (datetime.now(timezone.utc) - started).total_seconds()
+        except Exception:
+            elapsed = 0.0
+        per_step = (elapsed / len(done)) if len(done) else 8.0
+        per_step = max(2.0, min(per_step, 40.0))
+        eta = int(max(3, remaining * per_step))
     events = []
     for k in order:
         st = steps[k]
@@ -228,7 +246,7 @@ def status_payload(job: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "status": status,
         "progress": int(100 * len(done) / total),
-        "eta_seconds": 0 if status == "done" else max(5, (total - len(done)) * 12),
+        "eta_seconds": eta,
         "events": events or [{"text": "Starting the audit...", "kind": "info"}],
         "message": job.get("message", ""),
     }

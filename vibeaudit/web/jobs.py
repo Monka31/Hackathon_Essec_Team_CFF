@@ -236,7 +236,7 @@ class JobStore:
                 except Exception as ce:
                     reason = _redact_token(str(ce), github_token or os.getenv("GITHUB_TOKEN"))
                     self._step(job, "clone", "error", f"analyse du code non effectuée : {reason[:150]}")
-                    for sc in ("snyk_code", "snyk_deps", "semgrep", "gitleaks", "npm_audit"):
+                    for sc in ("snyk_code", "snyk_deps", "semgrep", "gitleaks", "trufflehog", "npm_audit"):
                         if sc in job.steps and job.steps[sc]["status"] == "pending":
                             self._step(job, sc, "skipped", "repo non analysé (clonage impossible)")
                 finally:

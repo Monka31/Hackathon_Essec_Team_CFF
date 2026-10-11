@@ -96,24 +96,66 @@ def _table_name(f: Dict[str, Any]) -> str:
     return "public.<your_table>"
 
 
-def _security_fixes_md(findings: List[Dict[str, Any]]) -> str:
-    lines = ["# Security fixes proposed by vibeaudit", "",
-             "This pull request was opened by vibeaudit. It only ADDS files (recommendations and",
-             "example migrations). Nothing in your existing code was changed and nothing was deployed.",
-             "Review each item below, apply what you agree with, then merge.", ""]
+def _desc(f: Dict[str, Any]) -> str:
+    expl = f.get("explanations") or {}
+    return (expl.get("avance") or expl.get("expert") or f.get("description") or "").strip()
+
+
+def _security_fixes_md(findings: List[Dict[str, Any]], patched: List[str]) -> str:
+    patched = set(patched or [])
+    lines = ["# Security fixes proposed by Syberia", "",
+             "This pull request was opened by Syberia on a dedicated branch. Review the diff and merge",
+             "what you agree with. Nothing on your default branch changed until you merge.", "",
+             f"- Files changed with a proposed fix: {len(patched)}",
+             f"- Items reviewed in this PR: {len(findings)}", ""]
     for f in findings:
         lines.append(f"## {f.get('title', 'Issue')}  ({f.get('severity', 'medium').upper()})")
         if f.get("file"):
             loc = f["file"] + (f":{f['line']}" if f.get("line") else "")
             lines.append(f"- Location: `{loc}`")
-        if f.get("impact"):
-            lines.append(f"- Impact: {f['impact']}")
-        steps = f.get("fix_steps") or []
-        if steps:
-            lines.append("- Recommended fix:")
-            lines += [f"  - {s}" for s in steps]
+            if f["file"] in patched:
+                lines.append("- Status: a fix was applied to this file in this pull request (review the diff).")
+            else:
+                lines.append("- Status: recommendation only (no automatic code change).")
+        if _desc(f):
+            lines.append(f"- Problem: {_desc(f)[:400]}")
+        if f.get("fix_hint"):
+            lines.append(f"- How to fix: {f['fix_hint']}")
         lines.append("")
     return "\n".join(lines)
+
+
+def _ai_fix_file(path: str, content: str, f: Dict[str, Any]) -> Optional[str]:
+    """Demande au modèle le fichier CORRIGÉ en entier (changement minimal). None si impossible/inchangé."""
+    from ..llm import client as llm
+    if llm.provider() in ("off", "none", ""):
+        return None
+    if not content or len(content) > 60000:
+        return None
+    system = ("You are a senior security engineer fixing ONE vulnerability in a source file. "
+              "Return ONLY the complete corrected file content, with NO markdown fences and NO commentary. "
+              "Make the minimal change that fixes this one issue; keep all other code, imports, formatting and "
+              "behavior identical. If you cannot fix it safely, return the file exactly unchanged.")
+    prompt = (f"File path: {path}\n"
+              f"Vulnerability: {f.get('title', '')}\n"
+              f"Problem: {_desc(f)[:600]}\n"
+              f"Suggested direction: {f.get('fix_hint', '') or 'apply the standard secure pattern'}\n"
+              f"Line of interest: {f.get('line')}\n\n"
+              f"--- FILE START ---\n{content}\n--- FILE END ---")
+    try:
+        out = llm.complete(system, prompt, max_tokens=4000)
+    except Exception:
+        return None
+    if not isinstance(out, str):
+        return None
+    out = out.strip()
+    if out.startswith("```"):
+        out = re.sub(r"^```[a-zA-Z0-9_-]*\n", "", out)
+        out = re.sub(r"\n```\s*$", "", out)
+    out = out.strip("\n")
+    if not out or out == content.strip("\n"):
+        return None
+    return out + "\n"
 
 
 def _extra_files(findings: List[Dict[str, Any]]) -> List[Dict[str, str]]:
@@ -177,24 +219,39 @@ def deploy(batch_id: str, target: str) -> Dict[str, Any]:
         return {"error": "Could not create the fix branch (it may already exist)."}
 
     findings = b["findings"]
-    files = [{"path": "SECURITY_FIXES.md", "content": _security_fixes_md(findings)}] + _extra_files(findings)
-    written = 0
-    for fl in files:
-        existing = github_app.get_file(owner, repo, fl["path"], branch, token)
+    patched: List[str] = []
+    not_patched: List[Dict[str, Any]] = []
+    for f in findings[:12]:  # on borne pour garder une PR relisible et un temps raisonnable
+        path = f.get("file")
+        if path and "://" not in path and not path.startswith("supabase:"):
+            existing = github_app.get_file(owner, repo, path, branch, token)
+            if existing:
+                fixed = _ai_fix_file(path, existing["content"], f)
+                if fixed and github_app.put_file(owner, repo, path, fixed,
+                                                 "Syberia: fix " + (f.get("title") or path)[:60],
+                                                 branch, existing["sha"], token):
+                    if path not in patched:
+                        patched.append(path)
+                    continue
+        not_patched.append(f)
+
+    # fichiers additifs seulement pour ce qui n'a pas pu être corrigé automatiquement
+    extra = [{"path": "SECURITY_FIXES.md", "content": _security_fixes_md(findings, patched)}] + _extra_files(not_patched)
+    for fl in extra:
         path = fl["path"]
+        existing = github_app.get_file(owner, repo, path, branch, token)
         if existing and path == "SECURITY_FIXES.md":
             path = f"SECURITY_FIXES_{batch_id}.md"
             existing = None
         if existing:
-            continue  # on n'écrase jamais un fichier du projet
-        if github_app.put_file(owner, repo, path, fl["content"],
-                               "vibeaudit: add security fix recommendations", branch, None, token):
-            written += 1
+            continue  # on n'écrase jamais un fichier existant du projet
+        github_app.put_file(owner, repo, path, fl["content"],
+                            "Syberia: security fix notes", branch, None, token)
 
-    body = _security_fixes_md(findings)
+    body = _security_fixes_md(findings, patched)
     pr = github_app.open_pull_request(
         owner, repo, branch, base,
-        title=f"vibeaudit: security fixes ({len(findings)} issue(s))",
+        title=f"Syberia: security fixes ({len(patched)} file(s) changed, {len(findings)} issue(s))",
         body=body, token=token)
     if not pr:
         return {"error": "The branch was created but the pull request could not be opened."}
