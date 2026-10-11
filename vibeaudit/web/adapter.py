@@ -194,6 +194,13 @@ def to_prototype(report: Dict[str, Any], project_id: Optional[str] = None,
         "commit": None,
         "ai": report.get("ai"),
         "ai_summary": report.get("ai_summary"),
+        "complete": report.get("complete", True),
+        "scanners": [{
+            "name": s.get("label") or s.get("name", "scanner"),
+            "status": s.get("status", "unknown"),
+            "message": re.sub(r"(?i)(?:token|jeton|secret|clé|api[_ -]?key)\s*[:=]\s*\S+", "[redacted]", s.get("message", "")),
+            "duration_s": s.get("duration_s"),
+        } for s in report.get("scanners", [])],
         "findings": findings,
         "ignored": ignored,
     }
@@ -215,23 +222,31 @@ def status_payload(job: Dict[str, Any]) -> Dict[str, Any]:
     order = list(steps.keys())
     done = [k for k in order if steps[k]["status"] in ("ok", "skipped", "error")]
     total = max(1, len(order))
-    status = {"queued": "running", "running": "running", "done": "done", "error": "failed"}.get(
-        job.get("status"), "running")
-    # ETA basé sur le temps réellement écoulé par étape terminée (plus juste qu'une constante)
-    eta = 0
-    if status != "done":
-        remaining = total - len(done)
-        elapsed = 0.0
-        try:
-            started = datetime.fromisoformat(job.get("created_at"))
-            if started.tzinfo is None:
-                started = started.replace(tzinfo=timezone.utc)
-            elapsed = (datetime.now(timezone.utc) - started).total_seconds()
-        except Exception:
-            elapsed = 0.0
-        per_step = (elapsed / len(done)) if len(done) else 8.0
-        per_step = max(2.0, min(per_step, 40.0))
-        eta = int(max(3, remaining * per_step))
+    terminal = len(done) == len(order)
+    status = "failed" if job.get("status") == "error" else ("done" if terminal and job.get("status") == "done" else "running")
+    elapsed = 0
+    try:
+        started = datetime.fromisoformat(job.get("created_at"))
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        elapsed = max(0, int((datetime.now(timezone.utc) - started).total_seconds()))
+    except Exception:
+        pass
+    durations = list((job.get("step_durations") or {}).values())
+    unresolved = [k for k in order if k not in done]
+    # A remote DAST scan has high variance; never invent a countdown for it.
+    dast_status = steps.get("snyk_dast", {}).get("status")
+    remote_dast = dast_status == "running" or (dast_status == "pending" and job.get("status") == "done")
+    if status == "done" or status == "failed":
+        eta, eta_label = 0, ""
+    elif remote_dast:
+        eta, eta_label = None, "External web scan · duration varies"
+    elif durations:
+        per_step = sum(durations) / len(durations)
+        eta = max(1, int(per_step * len(unresolved)))
+        eta_label = f"Estimated from completed steps · {eta}s remaining"
+    else:
+        eta, eta_label = None, "Measuring the first scan steps"
     events = []
     for k in order:
         st = steps[k]
@@ -242,11 +257,19 @@ def status_payload(job: Dict[str, Any]) -> Dict[str, Any]:
             if st["status"] == "ok" and found:
                 events.append({"text": f"{label}: {m.group(1)} issue(s) found", "kind": "alert"})
             else:
-                events.append({"text": f"{label} — {STATUS_EN.get(st['status'], st['status'])}", "kind": "info"})
+                detail = re.sub(r"(?i)(?:token|jeton|secret|clé|api[_ -]?key)\s*[:=]\s*\S+", "[redacted]", st.get("message", ""))
+                events.append({"text": f"{label} — {detail or STATUS_EN.get(st['status'], st['status'])}",
+                               "kind": "alert" if st["status"] == "error" else "info"})
     return {
         "status": status,
-        "progress": int(100 * len(done) / total),
+        "target": (urlparse(job.get("app_url") or "").netloc or job.get("repo_url") or "your project"),
+        "progress": 100 if status == "done" else min(99, int(100 * len(done) / total)),
         "eta_seconds": eta,
+        "eta_label": eta_label,
+        "elapsed_seconds": elapsed,
         "events": events or [{"text": "Starting the audit...", "kind": "info"}],
+        "logs": [re.sub(r"(?i)(?:token|jeton|secret|clé|api[_ -]?key)\s*[:=]\s*\S+", "[redacted]", x)
+                 for x in (job.get("log") or [])[-80:]],
+        "report_ready": bool(job.get("has_report")),
         "message": job.get("message", ""),
     }

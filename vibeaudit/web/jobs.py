@@ -55,6 +55,8 @@ class Job:
     message: str = ""
     steps: Dict[str, Dict[str, str]] = field(default_factory=dict)
     log: List[str] = field(default_factory=list)
+    step_started_at: Dict[str, float] = field(default_factory=dict)
+    step_durations: Dict[str, float] = field(default_factory=dict)
     score: Optional[int] = None
     grade: Optional[str] = None
     counts: Dict[str, int] = field(default_factory=dict)
@@ -152,8 +154,14 @@ class JobStore:
     def _step(self, job: Job, name: str, status: str, message: str = "") -> None:
         with self.lock:
             if name in job.steps:
+                previous = job.steps[name]["status"]
+                if status == "running" and previous != "running":
+                    job.step_started_at[name] = time.time()
+                elif status in ("ok", "skipped", "error") and name in job.step_started_at:
+                    job.step_durations[name] = round(max(0, time.time() - job.step_started_at.pop(name)), 1)
                 job.steps[name].update(status=status, message=message[:400])
-            job.log.append(f"{datetime.now().strftime('%H:%M:%S')} {LABELS.get(name, name)} : {message or status}")
+            job.log.append(f"{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC · {LABELS.get(name, name)} · {message or status}")
+            job.log = job.log[-300:]
         self.save(job)
 
     def _write_report(self, job: Job, runs, final: bool, ai: bool = False, context=None) -> None:

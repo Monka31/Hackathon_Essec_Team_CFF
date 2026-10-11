@@ -228,3 +228,13 @@ def open_pull_request(owner: str, repo: str, head: str, base: str, title: str, b
     if r.status_code in (200, 201):
         return r.json().get("html_url")
     return None
+
+
+def pull_request_status(owner: str, repo: str, number: int, token: str) -> Optional[Dict[str, Any]]:
+    """Return the current state of a PR without exposing the installation token."""
+    r = requests.get(f"{API}/repos/{owner}/{repo}/pulls/{number}",
+                     headers=_repo_headers(token), timeout=_TIMEOUT)
+    if r.status_code != 200:
+        return None
+    data = r.json()
+    return {"state": data.get("state"), "merged": bool(data.get("merged"))}

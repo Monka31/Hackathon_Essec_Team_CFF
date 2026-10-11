@@ -88,10 +88,9 @@ def scan_url(url: str, progress: Optional[Callable[[str], None]] = None, max_wai
     tid = target.get("id")
     site = target.get("site") or {}
     if not site.get("verified"):
-        token = site.get("verification_token", "")
         raise ScannerSkipped(
             "domaine non vérifié dans Snyk API & Web : dans plus.probely.app, ouvrir la cible et suivre "
-            f"'Verify domain' (jeton de vérification : {token}), puis relancer"
+            "'Verify domain' avant de relancer. Le jeton de vérification reste dans votre compte Snyk."
         )
 
     body = {"scan_profile": os.getenv("PROBELY_SCAN_PROFILE")} if os.getenv("PROBELY_SCAN_PROFILE") else None

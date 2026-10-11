@@ -154,9 +154,14 @@ button,input{font:inherit;color:inherit}
 .bar{height:12px;border-radius:999px;background:rgba(22,48,31,.07);box-shadow:inset 0 1px 2px rgba(22,48,31,.08);overflow:hidden}
 .bar>div{height:100%;width:0;border-radius:999px;transition:width .4s linear;box-shadow:0 0 14px rgba(150,205,90,.55)}
 .bar.done>div{background:linear-gradient(90deg,#D9FF6E,#9BD52A);animation:none}
-.history{width:100%;margin:0;padding:0 12px;list-style:none;display:flex;flex-direction:column;gap:12px}
-.history li{display:flex;align-items:center;font-size:16px;line-height:1.4;color:#26352C}
+.history{width:100%;max-height:360px;overflow:auto;margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}
+.history li{display:flex;align-items:flex-start;font:12px/1.5 var(--mono);color:#26352C;overflow-wrap:anywhere}
 .history li.alert{color:#8A1F24}
+.scan-console{width:100%;border-radius:22px;padding:18px 20px}
+.scan-console summary{cursor:pointer;font-size:14px;font-weight:600}
+.scan-console .history{margin-top:14px;padding:12px;border-radius:14px;background:rgba(18,35,24,.035)}
+.spinner{display:inline-block;width:16px;height:16px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;vertical-align:-3px;animation:spin .7s linear infinite;margin-right:7px}
+@keyframes spin{to{transform:rotate(360deg)}}
 .mk{display:inline-flex;align-items:center;justify-content:center;flex:0 0 24px;height:24px;margin-right:12px;border-radius:50%;font-size:13px;font-weight:700;background:rgba(150,210,50,.22);color:var(--ok)}
 .alert .mk{background:rgba(255,90,95,.16);color:#C42B30}
 
@@ -495,7 +500,8 @@ const api = {
   async getFixBatch(id) {
     if (!CONFIG.USE_MOCK) return http('GET', '/fixes/batches/' + id);
     const b = MOCK.batches[id];
-    return { status: 'ready', items: b.ids.map(finding_id => ({ finding_id, progress: 0, stage: 'ready' })) };
+    return b ? { status: 'ready', items: b.ids.map(finding_id => ({ finding_id, progress: 0, stage: 'ready' })), pr_url: null, merged: false }
+      : Promise.reject(new Error('Fix batch not found'));
   },
   // POST /fixes/batches/:id/deploy
   async deployBatch(id, target) {
@@ -536,7 +542,7 @@ async function render() {
     if (parts[0] === 'deep') return screenDeep();
     if (parts[0] === 'scan') return screenScan(parts[1]);
     if (parts[0] === 'report') return screenReport(parts[1], params.get('view'));
-    if (parts[0] === 'signup') return screenSignup(params.get('next'));
+    if (parts[0] === 'signup') return state.user ? go(params.get('next') || '#/app/dashboard') : screenSignup(params.get('next'));
     if (parts[0] === 'onboarding') return screenOnboarding(params.get('next'));
     if (parts[0] === 'app') {
       if (!state.user) return go('#/signup?next=' + encodeURIComponent(location.hash));
@@ -611,20 +617,6 @@ function shell(current, inner) {
     </aside>
     <main class="main">${inner}</main></div>`;
 }
-function syncDashboardShortcut() {
-  let link = document.getElementById('dashboardShortcut');
-  if (!link) {
-    link = document.createElement('a');
-    link.id = 'dashboardShortcut';
-    link.href = '#/app/dashboard';
-    link.textContent = 'Dashboard';
-    link.setAttribute('aria-label', 'Open dashboard');
-    link.style.cssText = 'position:fixed;top:16px;right:18px;z-index:9998;padding:11px 18px;border-radius:999px;background:#C8F24A;color:#16301F;text-decoration:none;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.16)';
-    document.body.appendChild(link);
-  }
-  link.hidden = !state.user || location.hash.replace(/^#/, '').startsWith('/app/dashboard');
-}
-window.addEventListener('hashchange', syncDashboardShortcut);
 document.addEventListener('click', e => { const t = e.target.closest('[data-toast]'); if (t) toast(t.dataset.toast); });
 document.addEventListener('click', async e => { const t = e.target.closest('[data-logout]'); if (!t) return; await api.logout(); state.user = null; toast('Logged out'); go('#/'); });
 document.addEventListener('click', e => { if (e.target.closest('[data-github-login]')) window.location.href = CONFIG.API_BASE + '/auth/github/login'; });
@@ -635,8 +627,7 @@ document.addEventListener('click', e => { if (e.target.closest('[data-github-log
 
 /* 1 · Home (no menu bar) */
 function screenHome() {
-  $app.innerHTML = `${brandCenter()}
-  <main class="home">
+  const content = `<main class="home">
     <div style="display:flex;flex-direction:column;align-items:center;gap:18px;text-align:center">
       <span class="glass-soft" style="display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border-radius:999px;font-size:14px;color:var(--text-2)"><span style="width:8px;height:8px;border-radius:50%;background:#9BD52A;box-shadow:0 0 0 4px rgba(155,213,42,.25)"></span>Built for apps made with Lovable, Bolt and Cursor</span>
       <h1 class="serif">Is your vibe-coded app safe to sell?</h1>
@@ -653,35 +644,41 @@ function screenHome() {
     </form>
     <section class="row" style="gap:20px">
       <div class="mode glass lift">
-        <div class="f-top" style="align-items:center"><h2 style="margin:0;font-size:22px;font-weight:600">Quick audit</h2><span class="chip sev-fixed" style="font-size:13px;padding:6px 14px">1–2 min · free</span></div>
-        <p class="muted" style="margin:0;font-size:15px;line-height:1.5">From your URL only. We check what anyone on the internet can see.</p>
-        <div style="display:flex;flex-wrap:wrap;gap:8px">${['HTTPS and security headers', 'Public .env or .git files', 'Secrets in downloaded JavaScript', 'Public Supabase key signals'].map(t => `<span class="glass-soft" style="padding:8px 14px;border-radius:999px;font-size:14px">${t}</span>`).join('')}</div>
+        <div class="f-top" style="align-items:center"><h2 style="margin:0;font-size:22px;font-weight:600">Quick audit</h2><span class="chip sev-fixed" style="font-size:13px;padding:6px 14px">Live timing · free</span></div>
+        <p class="muted" style="margin:0;font-size:15px;line-height:1.5">Passive checks of the public URL, headers, exposed files and downloaded assets. This does not crawl app flows or prove exploitability.</p>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">${['HTTPS and security headers', 'Public .env or .git files', 'High-risk secrets in downloaded JavaScript', 'Supabase public-key context'].map(t => `<span class="glass-soft" style="padding:8px 14px;border-radius:999px;font-size:14px">${t}</span>`).join('')}</div>
       </div>
       <div class="mode mode-green lift">
-        <div class="f-top" style="align-items:center"><h2 style="margin:0;font-size:22px;font-weight:600">Deep audit</h2><span class="glass-soft" style="padding:6px 14px;border-radius:999px;font-size:13px;font-weight:600">about 20 min</span></div>
-        <p style="margin:0;font-size:15px;line-height:1.5;color:var(--text-2)">Upload a ZIP or connect GitHub. We read every file, then propose fixes and re-test them.</p>
+        <div class="f-top" style="align-items:center"><h2 style="margin:0;font-size:22px;font-weight:600">Deep audit</h2><span class="glass-soft" style="padding:6px 14px;border-radius:999px;font-size:13px;font-weight:600">Timing depends on repo and scanners</span></div>
+        <p style="margin:0;font-size:15px;line-height:1.5;color:var(--text-2)">Upload a ZIP or connect GitHub. We scan the source and dependencies, then propose reviewable changes where possible.</p>
         <a class="btn" href="#/deep" style="align-self:flex-start;margin-top:auto">Run a deep audit</a>
       </div>
     </section>
-    <p class="muted" style="margin:0;text-align:center;font-size:14px">Already have an account? <a href="#" id="login" style="font-weight:600">Log in</a></p>
   </main>`;
+  $app.innerHTML = state.user ? shell('dashboard', content) : `${brandCenter()}${content}`;
   document.getElementById('quick').addEventListener('submit', async e => {
     e.preventDefault();
     const url = document.getElementById('url').value.trim(), err = document.getElementById('err');
     if (!/^https?:\/\/[^\s.]+\.[^\s]+$/i.test(url)) { err.textContent = 'Enter the full address of your app, starting with https://'; return; }
+    try {
+      const targetUrl = new URL(url);
+      if (['owasp.org', 'www.owasp.org'].includes(targetUrl.hostname.toLowerCase()) && targetUrl.pathname.replace(/\/$/, '') === '/projects/juice-shop') {
+        err.textContent = 'This is the OWASP project page, not the vulnerable Juice Shop app. Start a Juice Shop instance and scan that instance URL.';
+        return;
+      }
+    } catch (ex) { err.textContent = 'Enter a valid app URL.'; return; }
     if (!document.getElementById('consent').checked) { err.textContent = 'Tick the box to confirm you own this app.'; return; }
     err.textContent = '';
     const btn = e.target.querySelector('button'); btn.disabled = true; btn.textContent = 'Starting…';
     try { const { audit_id } = await api.startAudit({ type: 'quick', url }); state.lastAuditId = audit_id; go('#/scan/' + audit_id); }
     catch (ex) { err.textContent = 'The audit could not start: ' + ex.message; btn.disabled = false; btn.textContent = 'Start my free audit'; }
   });
-  document.getElementById('login').addEventListener('click', e => { e.preventDefault(); go('#/signup?next=' + encodeURIComponent('#/app/dashboard')); });
 }
 
 /* 1b · Deep audit */
 function screenDeep() {
-  $app.innerHTML = `<div class="dialog-wrap"><div class="dialog glass" role="dialog" aria-modal="true" aria-labelledby="dt">
-    <div class="dialog-head"><div><h1 id="dt" class="serif" style="margin:0;font-size:46px;line-height:1">Deep audit</h1><p class="muted" style="margin:6px 0 0;font-size:15px">About 20 minutes. We read every file of your project.</p></div><a class="btn btn-icon" href="${state.user ? '#/app/dashboard' : '#/'}" aria-label="Close">×</a></div>
+  const content = `<div class="dialog-wrap"><div class="dialog glass" role="dialog" aria-modal="true" aria-labelledby="dt">
+    <div class="dialog-head"><div><h1 id="dt" class="serif" style="margin:0;font-size:46px;line-height:1">Deep audit</h1><p class="muted" style="margin:6px 0 0;font-size:15px">The live estimate updates as each scanner finishes; large repositories and remote scans take longer.</p></div><a class="btn btn-icon" href="${state.user ? '#/app/dashboard' : '#/'}" aria-label="Close">×</a></div>
     <label class="drop glass-soft" id="drop" for="zip"><span class="orb" style="width:54px;height:54px"></span><strong id="dropTitle" style="font-size:17px;font-weight:600">Drop your project here as a .zip</strong><span class="muted" style="font-size:14px">or click to browse · max ${CONFIG.MAX_ZIP_MB} MB · .env files are ignored</span><input id="zip" class="sr-only" type="file" accept=".zip,application/zip"></label>
     <div class="or">or connect your repository</div>
     <div class="stack" style="gap:10px">
@@ -692,6 +689,7 @@ function screenDeep() {
     <div class="err" id="derr" role="alert"></div>
     <button class="btn btn-lime btn-lg" id="startDeep" type="button">Start the deep audit</button>
   </div></div>`;
+  $app.innerHTML = state.user ? shell('projects', content) : content;
   let file = null, provider = null;
   const drop = document.getElementById('drop'), input = document.getElementById('zip'), title = document.getElementById('dropTitle'), derr = document.getElementById('derr');
   const setFile = f => {
@@ -729,33 +727,39 @@ function screenDeep() {
 /* 2 · Scan in progress */
 function screenScan(id) {
   const target = (MOCK.audits[id] && MOCK.audits[id].target) || 'your app';
-  $app.innerHTML = `${brandCenter()}
-  <main class="scan">
-    <span class="glass-soft mono" style="padding:10px 16px;border-radius:999px;font-size:13px;color:var(--text-2)">${esc(target)}</span>
+  const content = `<main class="scan">
+    <span class="glass-soft mono" id="scanTarget" style="padding:10px 16px;border-radius:999px;font-size:13px;color:var(--text-2)">${esc(target)}</span>
     <span class="orb orb-live" style="width:120px;height:120px"></span>
     <div class="glass" style="width:100%;border-radius:32px;padding:32px;display:flex;flex-direction:column;gap:26px">
       <p class="shimmer serif" id="now" aria-live="polite" style="margin:0;font-size:clamp(28px,4vw,40px);line-height:1.15;text-align:center">Starting the technical audit…</p>
       <div><div class="bar" id="bar" role="progressbar" aria-label="Audit progress" aria-valuemin="0" aria-valuemax="100"><div class="flow" id="fill"></div></div>
         <div style="display:flex;justify-content:space-between;font-size:14px;color:var(--faint);margin-top:10px"><span class="mono" id="pct">0%</span><span id="eta"></span></div></div>
     </div>
-    <ol class="history" id="hist"></ol>
+    <details class="scan-console glass" open>
+      <summary>Live audit console · real scanner events</summary>
+      <ol class="history" id="hist"><li>Waiting for the audit worker…</li></ol>
+    </details>
+    <a class="btn btn-sm" id="prelim" href="#/report/${encodeURIComponent(id)}" hidden>Open preliminary results while scanning continues</a>
     <p class="muted" style="margin:0;font-size:14px">Your report opens automatically when the audit is done.</p>
   </main>`;
+  $app.innerHTML = state.user ? shell('dashboard', content) : `${brandCenter()}${content}`;
   const nowEl = document.getElementById('now'), fill = document.getElementById('fill'), bar = document.getElementById('bar'), pct = document.getElementById('pct'), eta = document.getElementById('eta'), hist = document.getElementById('hist');
   let last = 0;
   async function tick() {
     let s;
     try { s = await api.getAuditStatus(id); } catch (e) { nowEl.textContent = 'Connection lost. Retrying…'; return; }
     if (s.status === 'failed') { clearTimers(); nowEl.classList.remove('shimmer'); nowEl.textContent = 'The audit stopped. Check that your app is online, then start again.'; return; }
+    if (s.target) document.getElementById('scanTarget').textContent = s.target;
     fill.style.width = s.progress + '%'; bar.setAttribute('aria-valuenow', s.progress); pct.textContent = s.progress + '%';
-    eta.textContent = s.status === 'done' ? 'Done' : s.eta_seconds < 10 ? 'Almost done' : 'About ' + s.eta_seconds + ' seconds left';
-    const ev = s.events || [];
-    if (ev.length !== last) {
-      last = ev.length;
-      nowEl.textContent = s.status === 'done' ? 'Audit complete. Opening your report…' : ev[ev.length - 1].text;
-      const past = (s.status === 'done' ? ev : ev.slice(0, -1)).slice(-5).reverse();
-      hist.innerHTML = past.map((e, i) => `<li class="${e.kind === 'alert' ? 'alert' : ''}" style="opacity:${Math.max(.22, .9 - i * .17).toFixed(2)}"><span class="mk">${e.kind === 'alert' ? '!' : '✓'}</span>${esc(e.text)}</li>`).join('');
+    eta.textContent = s.status === 'done' ? 'Done' : `${s.eta_label || ''}${s.elapsed_seconds != null ? ` · elapsed ${s.elapsed_seconds}s` : ''}`;
+    const logs = s.logs || [];
+    if (logs.length !== last || !last) {
+      last = logs.length;
+      nowEl.textContent = s.status === 'done' ? 'Audit complete. Opening your report…' : (logs[logs.length - 1] || 'Starting audit…').replace(/^\S+ UTC · /, '');
+      hist.innerHTML = logs.slice(-80).map(line => `<li>${esc(line)}</li>`).join('') || '<li>Waiting for the audit worker…</li>';
+      hist.scrollTop = hist.scrollHeight;
     }
+    document.getElementById('prelim').hidden = !(s.report_ready && s.status === 'running');
     if (s.status === 'done') { bar.classList.add('done'); clearTimers(); setTimeout(() => go('#/report/' + id), 1200); }
   }
   tick(); state.timers.push(setInterval(tick, CONFIG.POLL_MS));
@@ -775,12 +779,18 @@ async function screenReport(id, view) {
       <div class="seg glass" role="group" aria-label="Report view"><a class="btn" href="#/report/${id}?view=founder" ${!dev ? 'aria-current="page"' : ''}>Founder view</a><a class="btn" href="#/report/${id}?view=dev" ${dev ? 'aria-current="page"' : ''}>Developer view</a></div>
     </div>`;
   const headline = c.critical ? `${c.critical} critical finding${c.critical > 1 ? 's need' : ' needs'} review.` : open.length ? `${open.length} finding${open.length > 1 ? 's' : ''} reported by the scanners.` : 'No open scanner findings were reported.';
+  const scannerCoverage = r.scanners && r.scanners.length ? `<details class="glass card" style="border-radius:24px">
+    <summary style="cursor:pointer;font-weight:600">Scan coverage and skipped checks</summary>
+    <p class="muted" style="font-size:14px;line-height:1.5">The score only summarizes findings from checks that ran. A skipped or unavailable scanner is not evidence that the app is safe.${r.complete === false ? ' A remote scan is still running; these results are preliminary.' : ''}</p>
+    <ul class="history" style="max-height:240px">${r.scanners.map(s => `<li><strong>${esc(s.name)}</strong> · ${esc(s.status)}${s.duration_s != null ? ` · ${esc(String(s.duration_s))}s` : ''}${s.message ? ` · ${esc(s.message)}` : ''}</li>`).join('')}</ul>
+  </details>` : '';
+  const fixLabel = c.critical ? 'Review critical findings' : c.high ? 'Review high findings' : open.length ? 'Review findings' : 'No open findings';
   const scoreCard = `<section class="score-card glass">${ring(score, 190, true)}
       <div style="flex:1 1 380px;display:flex;flex-direction:column;gap:14px">
         <span class="chip" style="align-self:flex-start;font-size:13px;padding:6px 14px;background:var(--${v.tone === 'ok' ? 'ok' : v.tone}-bg, var(--lime));color:var(--${v.tone === 'ok' ? 'ink' : v.tone})">${v.label}</span>
         <h2 class="serif" style="margin:0;font-size:38px;line-height:1.08">${headline}</h2>
         <div style="display:flex;flex-wrap:wrap;gap:8px">${countChips(c)}</div>
-        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px"><button class="btn btn-lime btn-lg" id="fixAll" type="button">Fix the critical issues</button><button class="btn btn-lg" style="font-weight:500" id="dl" type="button">Download the report</button></div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px"><button class="btn btn-lime btn-lg" id="fixAll" type="button" ${open.length ? '' : 'disabled'}>${fixLabel}</button><button class="btn btn-lg" style="font-weight:500" id="dl" type="button">Download the report</button></div>
       </div></section>${scoreExplainer(list)}`;
   let body;
   if (!dev) {
@@ -819,7 +829,8 @@ async function screenReport(id, view) {
           <span class="mono" style="font-size:14px;color:var(--link)">${esc(g.location)}</span><p style="margin:0;font-size:14px;line-height:1.55"><strong>Likely false positive:</strong> ${esc(g.reason)}</p></article>`).join('')}</div>
       </section></div>`;
   }
-  $app.innerHTML = `${brandCenter()}<main class="wrap ${dev ? 'wide' : ''}">${head}${scoreCard}${body}</main>`;
+  const reportContent = `<main class="wrap ${dev ? 'wide' : ''}">${head}${scoreCard}${body}</main>`;
+  $app.innerHTML = state.user ? shell('findings', `<div class="stack">${scannerCoverage}${reportContent}</div>`) : `${brandCenter()}<div class="stack">${scannerCoverage}${reportContent}</div>`;
   bindExplainer();
   document.querySelectorAll('[data-tech]').forEach(b => b.addEventListener('click', () => {
     const box = document.getElementById('tech-' + b.dataset.tech), opening = box.hidden;
@@ -880,7 +891,7 @@ function screenOnboarding(next) {
     const goalT = { launch: ['Pre-launch checklist', 'What must be fixed before you go public.'], client: ['Security passport first', 'Ready to send to your client once critical issues are fixed.'], raise: ['Investor-ready report', 'A passport for your data room.'], incident: ['Incident mode', 'We check for signs of an active leak first.'] }[answers.goal] || ['Pre-launch checklist', ''];
     const builtT = 'Fix suggestions can be reviewed as a GitHub pull request or copied into your coding tool.';
     const pri = 'Findings are sorted by scanner severity; personal concern-based ranking is not applied yet.';
-    $app.innerHTML = `<header style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:16px;padding:24px 40px"><span class="brand"><span class="orb" style="width:34px;height:34px"></span>Syberia</span><a class="btn btn-sm" href="${next}" id="skip">Skip for now</a></header>
+    const content = `<header style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:16px;padding:24px 40px"><span class="brand"><span class="orb" style="width:34px;height:34px"></span>Syberia</span><a class="btn btn-sm" href="${next}" id="skip">Skip for now</a></header>
     <main style="max-width:820px;margin:0 auto;padding:40px 24px 64px"><div class="glass" style="border-radius:40px;padding:clamp(24px,5vw,40px);display:flex;flex-direction:column;gap:30px">
       <div style="display:flex;align-items:center;gap:18px"><span class="muted" style="font-size:14px;white-space:nowrap">${summary ? 'All set' : 'Step ' + (step + 1) + ' of ' + QUESTIONS.length}</span><div class="bar" style="flex:1 1 auto;height:8px" role="progressbar" aria-label="Questionnaire progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><div class="flow" style="width:${pct}%"></div></div><span class="mono muted" style="font-size:14px">${pct}%</span></div>
       ${summary ? `<div style="display:flex;flex-direction:column;align-items:flex-start;gap:12px"><span class="orb orb-live" style="width:64px;height:64px"></span><h1 class="serif" style="margin:0;font-size:clamp(36px,5vw,50px);line-height:1">Your dashboard is ready</h1><p class="muted" style="margin:0;font-size:17px">Here is what we tailored for you. Change it anytime in Settings.</p></div>
@@ -892,6 +903,7 @@ function screenOnboarding(next) {
         <button class="linkbtn" type="button" id="back" ${step === 0 ? 'disabled' : ''} style="text-decoration:none;font-size:17px;font-weight:500;${step === 0 ? 'opacity:.4' : ''}">← Back</button>
         ${summary ? '<button class="btn btn-lime btn-lg" type="button" id="finish">Go to my dashboard</button>' : `<button class="btn btn-mint btn-lg" type="button" id="next" ${answered ? '' : 'disabled'}>Continue</button>`}
       </div></div></main>`;
+    $app.innerHTML = state.user ? shell('dashboard', content) : content;
     document.querySelectorAll('[data-opt]').forEach(b => b.addEventListener('click', () => {
       const id = b.dataset.opt;
       if (q.multi) {
@@ -1114,14 +1126,31 @@ async function screenFixes(projectId, select) {
   const p = projects.find(x => x.id === projectId && x.has_repo) || projects.find(x => x.id === projectId) || projects.find(x => x.has_repo) || projects[0];
   if (!p || !p.has_repo) return fixGate();
   const open = p.findings.filter(isOpen).sort((a, b) => SEV_ORDER[a.severity] - SEV_ORDER[b.severity]);
-  const pre = select ? select.split(',') : open.filter(f => f.severity === 'critical' || f.severity === 'high').map(f => f.id);
+  const batchStorageKey = 'syberia:fix-batch:' + p.id;
+  let savedBatch = null;
+  try { savedBatch = JSON.parse(localStorage.getItem(batchStorageKey) || 'null'); } catch (e) { try { localStorage.removeItem(batchStorageKey); } catch (_) {} }
+  const pre = savedBatch && Array.isArray(savedBatch.finding_ids) ? savedBatch.finding_ids
+    : select ? select.split(',') : open.filter(f => f.severity === 'critical' || f.severity === 'high').map(f => f.id);
   const sel = {}; open.forEach(f => { sel[f.id] = pre.includes(f.id); });
-  let phase = 'select', batch = null;
+  let phase = 'select', batch = savedBatch && savedBatch.batch_id || null, prUrl = savedBatch && savedBatch.pr_url || null;
+  if (batch) {
+    try {
+      const existing = await api.getFixBatch(batch);
+      prUrl = existing.pr_url || prUrl;
+      if (prUrl) phase = existing.merged ? 'merged' : existing.pr_state === 'closed' ? 'closed' : 'pr_open';
+    } catch (e) { try { localStorage.removeItem(batchStorageKey); } catch (_) {} batch = null; prUrl = null; }
+  }
+  if (savedBatch && savedBatch.reanalyze_audit_id && phase === 'merged') {
+    try {
+      const recheck = await api.getAuditStatus(savedBatch.reanalyze_audit_id);
+      phase = recheck.status === 'done' ? 'rechecked' : recheck.status === 'failed' ? 'merged' : 'reanalyzing';
+    } catch (e) { phase = 'merged'; }
+  }
   const before = computeScore(p.findings);
   const preview = () => computeScore(p.findings.filter(f => !(isOpen(f) && sel[f.id])));
   const draw = () => {
     const ids = open.filter(f => sel[f.id]).map(f => f.id), locked = phase !== 'select', after = preview();
-    $app.innerHTML = shell('fixes', `<div class="page-head"><div><p class="eyebrow">${phase === 'select' ? 'Choose findings for an AI-generated proposal. Critical and high are selected for you.' : 'Selected findings are ready to send to GitHub for proposed edits.'}</p><h1 class="serif h1">Fix ${esc(p.name)}</h1></div>
+    $app.innerHTML = shell('fixes', `<div class="page-head"><div><p class="eyebrow">${phase === 'select' ? 'Choose findings for an AI-generated proposal. Critical and high are selected for you.' : phase === 'merged' ? 'The pull request is merged; run a fresh audit to check what changed.' : phase === 'pr_open' ? 'The pull request is open and waiting for review or merge.' : phase === 'closed' ? 'The pull request was closed without being merged.' : 'Selected findings are ready to send to GitHub for proposed edits.'}</p><h1 class="serif h1">Fix ${esc(p.name)}</h1></div>
         <div class="glass" style="display:flex;align-items:center;gap:14px;padding:12px 20px;border-radius:24px"><span class="muted" style="font-size:13px">Score<br><span style="font-size:11px">current → if selected findings were resolved</span></span><span class="serif" style="font-size:34px;line-height:1;color:#C42B30">${before}</span><span class="muted">→</span><span class="serif" style="font-size:46px;line-height:1;color:${after >= 80 ? 'var(--ok)' : after >= 60 ? 'var(--high)' : 'var(--crit)'}">${after}</span></div></div>
       ${projects.length > 1 ? `<div style="display:flex;flex-wrap:wrap;gap:8px">${projects.map(x => `<a class="btn btn-sm ${x.id === p.id ? 'btn-mint' : ''}" href="#/app/fixes/${x.id}" ${x.id === p.id ? 'aria-current="page"' : ''}>${esc(x.name)}</a>`).join('')}</div>` : ''}
       ${open.length || phase !== 'select' ? `<section class="glass" style="border-radius:30px;padding:10px">
@@ -1138,10 +1167,10 @@ async function screenFixes(projectId, select) {
           </li>`; }).join('')}
         </ul></section>` : `<div class="glass card"><p style="margin:0">No open issues on ${esc(p.name)}. <a href="#/app/passport/${p.id}">Share the security passport</a>.</p></div>`}
       ${phase === 'select' && open.length ? '<p class="muted" style="margin:0;padding:0 8px;font-size:14px;line-height:1.5">Selected findings will be sent to the AI for a proposed code change. The change is committed to a separate GitHub branch and opened as a pull request; tests and a post-fix scan are not run automatically. Review the diff before merging.</p>' : ''}
-      ${phase === 'done' ? `<section style="display:flex;flex-direction:column;gap:16px"><h2 class="serif" style="margin:0;font-size:36px;line-height:1.05">Create a pull request with AI-proposed changes.</h2>
+      ${phase === 'done' || phase === 'deploying' ? `<section style="display:flex;flex-direction:column;gap:16px"><h2 class="serif" style="margin:0;font-size:36px;line-height:1.05">Create a pull request with AI-proposed changes.</h2>
         <p class="muted" style="margin:-6px 0 0;font-size:14px;line-height:1.5">Syberia will attempt targeted edits for the selected findings, commit successful edits to a separate branch, and open a PR. It will not run your tests or claim the fixes are verified. Your score changes only after you merge and run a new audit.</p>
         <div class="row" style="gap:16px">
-          <div class="deploy insight" style="min-height:0"><div class="f-top" style="align-items:center"><strong style="font-size:18px">GitHub</strong><span class="chip glass-soft" style="color:#2F5A1A">Connected</span></div><span class="mono" style="font-size:13px;color:var(--text-2)">${esc(p.repo)} · default branch</span><span style="font-size:14px;line-height:1.45;color:var(--text-2)">A new branch and reviewable pull request. No direct push to the default branch.</span><button class="btn btn-lime" style="margin-top:auto" type="button" id="deploy">Generate changes and open PR</button></div>
+          <div class="deploy insight" style="min-height:0"><div class="f-top" style="align-items:center"><strong style="font-size:18px">GitHub</strong><span class="chip glass-soft" style="color:#2F5A1A">Connected</span></div><span class="mono" style="font-size:13px;color:var(--text-2)">${esc(p.repo)} · default branch</span><span style="font-size:14px;line-height:1.45;color:var(--text-2)">A new branch and reviewable pull request. No direct push to the default branch.</span>${phase === 'deploying' ? '<button class="btn btn-lime" style="margin-top:auto" type="button" disabled><span class="spinner" aria-hidden="true"></span> Generating edits and opening PR…</button>' : '<button class="btn btn-lime" style="margin-top:auto" type="button" id="deploy">Generate changes and open PR</button>'}</div>
         </div>
         <a class="btn" href="#/app/passport/${p.id}" style="align-self:flex-start;font-weight:500">See the updated security passport</a></section>` : ''}`);
     if (!locked) {
@@ -1154,16 +1183,17 @@ async function screenFixes(projectId, select) {
         phase = 'done'; draw();
       });
     }
-    const dep = document.getElementById('deploy');
-    if (dep) dep.addEventListener('click', async () => {
-      dep.disabled = true; dep.textContent = 'Generating AI edits and opening PR…';
+    if (phase === 'done' && document.getElementById('deploy')) document.getElementById('deploy').addEventListener('click', async () => {
+      phase = 'deploying'; draw();
       try {
         const { pr_url, patched_files = [], recommendation_count = 0, verification } = await api.deployBatch(batch, 'github');
-        dep.textContent = 'Pull request opened';
+        prUrl = pr_url; phase = 'pr_open';
+        savedBatch = { batch_id: batch, pr_url: pr_url, finding_ids: ids };
+        try { localStorage.setItem(batchStorageKey, JSON.stringify(savedBatch)); } catch (e) {}
         toast(`${patched_files.length} file(s) edited; ${recommendation_count} recommendation(s) need manual work. Checks: ${verification === 'not_run' ? 'not run' : 'unknown'}.`);
-        window.open(pr_url, '_blank', 'noopener');
+        draw(); window.open(pr_url, '_blank', 'noopener');
       } catch (e) {
-        dep.disabled = false; dep.textContent = 'Generate changes and open PR';
+        phase = 'done'; draw();
         const msg = e.message || '';
         if (/not installed|install/i.test(msg)) toast('Install the Syberia GitHub App on this repo (Install button in the app settings), then retry');
         else if (/no connected GitHub repo|no pull request|has no connected/i.test(msg)) toast('This audit was run on a URL or a ZIP, so there is no repo to open a PR against. Run a deep audit on your GitHub repository to enable fixes.');
@@ -1171,6 +1201,35 @@ async function screenFixes(projectId, select) {
         else toast('Deploy failed: ' + msg);
       }
     });
+    if (phase === 'pr_open' || phase === 'merged' || phase === 'closed' || phase === 'reanalyzing' || phase === 'rechecked') {
+      const stateCard = document.createElement('section');
+      stateCard.className = 'glass card stack';
+      const recheckLink = savedBatch && savedBatch.reanalyze_audit_id ? savedBatch.reanalyze_audit_id : '';
+      stateCard.innerHTML = `<strong>${phase === 'merged' ? 'Pull request merged' : phase === 'closed' ? 'Pull request closed without merge' : phase === 'reanalyzing' ? 'Post-merge audit in progress' : phase === 'rechecked' ? 'Post-merge audit complete' : 'Pull request open'}</strong><a class="btn btn-sm" href="${esc(prUrl || '#')}" target="_blank" rel="noopener">Open pull request on GitHub</a>${phase === 'pr_open' ? '<button class="btn btn-sm" id="checkMerge" type="button">Refresh pull request status</button>' : ''}${phase === 'merged' ? '<button class="btn btn-lime btn-lg" id="reanalyze" type="button">Merge complete → re-analyze</button>' : ''}${phase === 'reanalyzing' ? `<a class="btn btn-mint" href="#/scan/${encodeURIComponent(recheckLink)}">View live audit</a>` : ''}${phase === 'rechecked' ? `<a class="btn btn-mint" href="#/report/${encodeURIComponent(recheckLink)}">View post-merge results</a>` : ''}${phase === 'closed' ? '<button class="btn btn-sm" id="newProposal" type="button">Start a new proposal</button>' : ''}`;
+      document.querySelector('.main').appendChild(stateCard);
+      const check = document.getElementById('checkMerge');
+      if (check) check.addEventListener('click', async () => {
+        check.disabled = true; check.textContent = 'Checking GitHub…';
+        try {
+          const current = await api.getFixBatch(batch);
+          phase = current.merged ? 'merged' : current.pr_state === 'closed' ? 'closed' : 'pr_open';
+          draw();
+        } catch (e) { check.disabled = false; check.textContent = 'Refresh pull request status'; toast('Could not read PR state: ' + e.message); }
+      });
+      const reanalyze = document.getElementById('reanalyze');
+      if (reanalyze) reanalyze.addEventListener('click', async () => {
+        reanalyze.disabled = true; reanalyze.textContent = 'Starting a fresh audit…';
+        try {
+          const { audit_id } = await api.rescan(p.id);
+          savedBatch.reanalyze_audit_id = audit_id;
+          try { localStorage.setItem(batchStorageKey, JSON.stringify(savedBatch)); } catch (e) {}
+          state.lastAuditId = audit_id; go('#/scan/' + audit_id);
+        }
+        catch (e) { reanalyze.disabled = false; reanalyze.textContent = 'Merge complete → re-analyze'; toast('Could not start the audit: ' + e.message); }
+      });
+      const newProposal = document.getElementById('newProposal');
+      if (newProposal) newProposal.addEventListener('click', () => { try { localStorage.removeItem(batchStorageKey); } catch (e) {} render(); });
+    }
   };
   draw();
 }
@@ -1293,7 +1352,7 @@ function mountChat() {
   });
 }
 
-(async () => { try { const r = await api.me(); state.user = r && r.user ? r.user : null; } catch (e) {} render(); mountChat(); syncDashboardShortcut(); })();
+(async () => { try { const r = await api.me(); state.user = r && r.user ? r.user : null; } catch (e) {} render(); mountChat(); })();
 </script>
 </body>
 </html>

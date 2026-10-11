@@ -15,10 +15,40 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 from . import db, github_app
-from .jobs import STORE
+from .jobs import DATA_DIR, STORE
 
 _BATCHES: Dict[str, Dict[str, Any]] = {}
 _LOCK = threading.Lock()
+
+
+def _batch_path(batch_id: str):
+    if not re.fullmatch(r"b_[A-Za-z0-9_-]{1,64}", batch_id):
+        return None
+    return DATA_DIR / "fix_batches" / f"{batch_id}.json"
+
+
+def _save_batch(batch_id: str, batch: Dict[str, Any]) -> None:
+    path = _batch_path(batch_id)
+    if path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(batch, ensure_ascii=False), encoding="utf-8")
+
+
+def _get_batch(batch_id: str) -> Optional[Dict[str, Any]]:
+    with _LOCK:
+        batch = _BATCHES.get(batch_id)
+    if batch:
+        return batch
+    path = _batch_path(batch_id)
+    if not path or not path.exists():
+        return None
+    try:
+        batch = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    with _LOCK:
+        _BATCHES[batch_id] = batch
+    return batch
 
 
 def _report_for_project(user_db_id: int, project_id: str) -> Optional[Dict[str, Any]]:
@@ -49,15 +79,30 @@ def create(user_db_id: int, project_id: str, finding_ids: List[str]) -> Optional
             "finding_ids": [f["id"] for f in selected], "findings": selected,
             "deployed_pr": None,
         }
+        batch = _BATCHES[bid]
+    _save_batch(bid, batch)
     return bid
 
 
 def status(batch_id: str, user_db_id: int) -> Optional[Dict[str, Any]]:
-    b = _BATCHES.get(batch_id)
+    b = _get_batch(batch_id)
     if not b or b["user_db_id"] != user_db_id:
         return None
     items = [{"finding_id": fid, "progress": 0, "stage": "ready"} for fid in b["finding_ids"]]
-    return {"status": "ready", "items": items}
+    result = {"status": "ready", "items": items, "pr_url": b.get("deployed_pr"),
+              "pr_state": b.get("pr_state"), "merged": bool(b.get("merged"))}
+    pr_number = b.get("pr_number")
+    owner, repo = _owner_repo(b.get("repo_url")) if b.get("repo_url") else (None, None)
+    if pr_number and owner and github_app.is_configured():
+        token = github_app.token_for_repo(owner, repo)
+        details = github_app.pull_request_status(owner, repo, pr_number, token) if token else None
+        if details:
+            result["pr_state"] = details.get("state")
+            result["merged"] = bool(details.get("merged"))
+            b["pr_state"] = result["pr_state"]
+            b["merged"] = result["merged"]
+            _save_batch(batch_id, b)
+    return result
 
 
 # --------------------------------------------------------- construction des PR
@@ -187,12 +232,13 @@ def _extra_files(findings: List[Dict[str, Any]]) -> List[Dict[str, str]]:
 
 
 def deploy(batch_id: str, target: str, user_db_id: int) -> Dict[str, Any]:
-    b = _BATCHES.get(batch_id)
+    b = _get_batch(batch_id)
     if not b or b["user_db_id"] != user_db_id:
         return {"error": "Unknown fix batch."}
     if b.get("deployed_pr"):
         return {"pr_url": b["deployed_pr"], "patched_files": b.get("patched_files", []),
-                "recommendation_count": b.get("recommendation_count", 0), "verification": "not_run"}
+                "recommendation_count": b.get("recommendation_count", 0), "verification": "not_run",
+                "pr_number": b.get("pr_number")}
     if target != "github":
         return {"error": "Only GitHub pull requests are available as a fix destination."}
     if not github_app.is_configured():
@@ -260,9 +306,15 @@ def deploy(batch_id: str, target: str, user_db_id: int) -> Dict[str, Any]:
         body=body, token=token)
     if not pr:
         return {"error": "The branch was created but the pull request could not be opened."}
+    pr_match = re.search(r"/pull/(\d+)(?:$|[?#])", pr)
     with _LOCK:
         b["deployed_pr"] = pr
+        b["pr_number"] = int(pr_match.group(1)) if pr_match else None
+        b["pr_state"] = "open"
+        b["merged"] = False
         b["patched_files"] = patched
         b["recommendation_count"] = len(not_patched)
+    _save_batch(batch_id, b)
     return {"pr_url": pr, "patched_files": patched,
-            "recommendation_count": len(not_patched), "verification": "not_run"}
+            "recommendation_count": len(not_patched), "verification": "not_run",
+            "pr_number": b["pr_number"]}

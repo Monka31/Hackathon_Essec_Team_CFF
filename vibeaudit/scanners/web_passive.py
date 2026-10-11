@@ -9,9 +9,10 @@ import json
 import re
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
+from http.cookies import SimpleCookie
 from typing import List, Optional
 
-from ..core.models import Evidence, Finding
+from ..core.models import Evidence, Finding, FindingList
 from ..core.net import Response, fetch
 from .base import ScannerError
 
@@ -108,15 +109,30 @@ def _check_headers(home: Response) -> List[Finding]:
         out.append(_f("Server version disclosed", "low", home.url,
                       f"The server advertises its version ({server.strip()}), helping an attacker target known flaws.",
                       "CWE-200", "Hide the Server and X-Powered-By headers.", "server-version", {"server": server.strip()}))
-    for cookie in home.raw_headers:
-        low = cookie.lower()
-        name = cookie.split("=", 1)[0]
-        missing = [a for a in ("secure", "httponly") if a not in low]
-        if missing:
-            out.append(_f(f"Cookie '{name}' missing {' and '.join(missing)}", "low", home.url,
-                          "A cookie without Secure can leak in clear text; without HttpOnly a script can read it.",
-                          "CWE-614", "Add the Secure, HttpOnly and SameSite attributes to the cookie.", "cookie-flags",
-                          {"cookie": name, "missing": missing}))
+    for header in home.raw_headers:
+        parsed = SimpleCookie()
+        try:
+            parsed.load(header)
+        except Exception:
+            continue
+        for name, morsel in parsed.items():
+            low_name = name.lower()
+            # Public preference/consent cookies do not protect an authenticated session.
+            if any(word in low_name for word in ("locale", "language", "theme", "consent", "preference")):
+                continue
+            # Only score cookies whose names indicate authentication/session material.
+            sensitive = any(word in low_name for word in ("session", "auth", "token", "jwt", "access", "refresh", "remember"))
+            sensitive = sensitive or low_name in {"sid", "ssid"} or low_name.endswith(("_sid", "-sid"))
+            if not sensitive:
+                continue
+            missing = [attr for attr, present in (("Secure", bool(morsel["secure"])),
+                                                   ("HttpOnly", bool(morsel["httponly"])),
+                                                   ("SameSite", bool(morsel["samesite"]))) if not present]
+            if missing:
+                out.append(_f(f"Authentication cookie '{name}' missing {' and '.join(missing)}", "medium", home.url,
+                              "This cookie appears to carry session or authentication state and is missing security flags.",
+                              "CWE-614", "Set Secure, HttpOnly and an appropriate SameSite policy on this authentication cookie.",
+                              "auth-cookie-flags", {"cookie": name, "missing": missing}))
     return out
 
 
@@ -138,7 +154,7 @@ def _check_exposed(base: str) -> List[Finding]:
         return [f for f in pool.map(probe, EXPOSED_FILES) if f]
 
 
-def _check_js_secrets(home: Response) -> List[Finding]:
+def _check_js_secrets(home: Response) -> FindingList:
     """Look for keys in the HTML and JavaScript files of the site (what every visitor downloads)."""
     p = urllib.parse.urlparse(home.url)
     sources = [(home.url, home.text)]
@@ -156,6 +172,7 @@ def _check_js_secrets(home: Response) -> List[Finding]:
             continue
 
     out, seen = [], set()
+    public_supabase_key = False
     for src_url, text in sources:
         for label, rx, sev in SECRET_PATTERNS:
             for m in rx.finditer(text):
@@ -179,12 +196,13 @@ def _check_js_secrets(home: Response) -> List[Finding]:
                               "CWE-798", "Rotate the key in Supabase (Settings > API), and use it server-side only.",
                               "supabase-service-role", {"secret": tok, "role": role}))
             elif role == "anon":
-                out.append(_f("Supabase public (anon) key detected", "low", src_url,
-                              "It is normal for it to be visible, but all security then rests on the RLS rules of each "
-                              "table: a table without RLS is readable by anyone holding this key.",
-                              "", "Check that RLS is enabled on every table (Supabase > Advisors > Security).",
-                              "supabase-anon", {"secret": tok, "role": role}))
-    return out
+                # Supabase anon/publishable keys are designed to ship to browsers.
+                # Their presence alone does not demonstrate an access-control failure.
+                public_supabase_key = True
+    note = ("Public Supabase anon key observed; this is expected in browser code and was not scored as a finding. "
+            "URL-only checks cannot determine whether database tables have correct RLS policies."
+            if public_supabase_key else "")
+    return FindingList(out, note=note)
 
 
 def scan_url(url: str) -> List[Finding]:
@@ -198,5 +216,6 @@ def scan_url(url: str) -> List[Finding]:
     base = f"{p.scheme}://{p.netloc}"
     findings = _check_https(url, home) + _check_headers(home)
     findings += _check_exposed(base)
-    findings += _check_js_secrets(home)
-    return findings
+    js_findings = _check_js_secrets(home)
+    findings += js_findings
+    return FindingList(findings, note=js_findings.note)
