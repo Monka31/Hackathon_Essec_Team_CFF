@@ -182,7 +182,24 @@ def to_prototype(report: Dict[str, Any], project_id: Optional[str] = None,
                 "reason": f.get("confidence_reason") or f.get("attack_scenario") or "Likely not exploitable here.",
             })
         else:
-            findings.append(_finding(f, pid, "Today"))
+            found = {"new": "New since last audit", "persisting": "Still open since last audit"}.get(
+                f.get("change"), "Today")
+            item = _finding(f, pid, found)
+            item["change"] = f.get("change")
+            findings.append(item)
+    comp = report.get("comparison")
+    comparison = None
+    if comp:
+        # Les failles de l'audit précédent qui ont disparu : affichées comme corrigées (fix_status 'verified')
+        for old in comp.get("fixed", []):
+            item = _finding(old, pid, "Fixed since last audit")
+            item["fix_status"] = "verified"
+            item["change"] = "fixed"
+            findings.append(item)
+        comparison = {k: comp.get(k) for k in ("previous_job_id", "previous_generated_at", "previous_score",
+                                                "fixed_count", "persisting_count", "new_count",
+                                                "unchecked_count", "scope_note")}
+        comparison["score"] = report.get("score")
     target = app_url or repo_url or report.get("target") or ""
     return {
         "audit_id": report.get("job_id") or "",
@@ -196,6 +213,7 @@ def to_prototype(report: Dict[str, Any], project_id: Optional[str] = None,
         "ai_summary": report.get("ai_summary"),
         "findings": findings,
         "ignored": ignored,
+        "comparison": comparison,
     }
 
 
