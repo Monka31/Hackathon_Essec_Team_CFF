@@ -82,7 +82,7 @@ class Finding:
 
     @property
     def id(self) -> str:
-        h = hashlib.sha1(repr(self.merge_key).encode()).hexdigest()[:10]
+        h = hashlib.sha256(repr(self.merge_key).encode()).hexdigest()[:10]
         return f"F-{h}"
 
     def to_dict(self) -> Dict[str, Any]:
