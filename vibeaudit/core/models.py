@@ -38,6 +38,42 @@ def severity_rank(sev: str) -> int:
     return SEVERITIES.index(sev) if sev in SEVERITIES else len(SEVERITIES)
 
 
+def code_line(snippet: Optional[str]) -> Optional[str]:
+    """Ligne de code visée par la faille (marquée '>' dans l'extrait), espaces normalisés."""
+    if not snippet:
+        return None
+    for raw in snippet.splitlines():
+        if raw.startswith(">") and "|" in raw:
+            code = " ".join(raw.split("|", 1)[1].split())
+            return code or None
+    return None
+
+
+def fingerprint(category: str, file: Optional[str], line: Optional[int], snippet: Optional[str],
+                title: str, package: Optional[str] = None) -> tuple:
+    """Empreinte d'une faille, indépendante du numéro de ligne.
+
+    Ajouter ou retirer des lignes plus haut dans un fichier ne change donc ni l'identifiant
+    ni la fusion des doublons : une faille corrigée disparaît, une faille restante garde
+    le même identifiant d'un audit à l'autre.
+    """
+    if category == "dependency":
+        return ("dependency", (package or title).lower())
+    code = code_line(snippet)
+    if code:
+        return (category, file, code)
+    if line is None:
+        # Pas de ligne (configuration, en-tête HTTP, secret dans l'historique) : on distingue par titre
+        return (category, file, title)
+    return (category, file, line)
+
+
+def fingerprint_of(d: Dict[str, Any]) -> tuple:
+    """Même empreinte, calculée depuis une faille déjà écrite dans un rapport JSON."""
+    return fingerprint(d.get("category", ""), d.get("file"), d.get("line"), d.get("snippet"),
+                       d.get("title", ""), d.get("package"))
+
+
 @dataclass
 class Evidence:
     """Preuve brute : ce qu'un scanner précis a remonté (choix B)."""
@@ -72,13 +108,8 @@ class Finding:
 
     @property
     def merge_key(self) -> tuple:
-        """Clé de fusion des doublons (choix E)."""
-        if self.category == "dependency":
-            return ("dependency", (self.package or self.title).lower())
-        if self.line is None:
-            # Pas de ligne (configuration, secret dans l'historique) : on distingue par règle
-            return (self.category, self.file, self.title)
-        return (self.category, self.file, self.line)
+        """Clé de fusion des doublons (choix E), stable d'un audit à l'autre."""
+        return fingerprint(self.category, self.file, self.line, self.snippet, self.title, self.package)
 
     @property
     def id(self) -> str:

@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from .. import __version__
 from ..scanners import LABELS, SCANNERS, URL_SCANNERS, gitleaks
-from ..scanners.base import ScannerError, ScannerSkipped
+from ..scanners.base import ScannerError, ScannerSkipped, is_excluded
 from .merge import merge_findings
 from .models import Finding, ScannerRun
 from .redact import Redactor
@@ -47,7 +47,14 @@ def selected(names: Iterable[str], only=None, skip=None) -> List[str]:
 def run_repo_scanners(root: Path, only=None, skip=None, progress: Progress = None) -> List[ScannerRun]:
     names = selected(SCANNERS, only, skip)
     with ThreadPoolExecutor(max_workers=len(names) or 1) as pool:
-        return list(pool.map(lambda n: _run_one(n, lambda: SCANNERS[n](root), progress), names))
+        runs = list(pool.map(lambda n: _run_one(n, lambda: SCANNERS[n](root), progress), names))
+    for run in runs:
+        kept = [f for f in run.findings if not is_excluded(f.file, f.category)]
+        dropped = len(run.findings) - len(kept)
+        if dropped:
+            run.findings = kept
+            run.message += f" ; {dropped} ignoré(s), {len(kept)} retenu(s) (code généré, dépendances installées, tests ou notes de correctif)"
+    return runs
 
 
 def run_url_scanners(url: str, only=None, skip=None, progress: Progress = None) -> List[ScannerRun]:

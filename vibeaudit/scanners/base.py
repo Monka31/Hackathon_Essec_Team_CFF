@@ -8,6 +8,36 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 
+# Dossiers jamais audités : code généré, dépendances installées, caches d'outils.
+# Les y laisser fait remonter des doublons du vrai code et du bruit qui ne se corrige pas.
+EXCLUDED_DIRS = {
+    "node_modules", ".next", ".nuxt", ".svelte-kit", ".vercel", ".turbo", "dist", "build", "out",
+    "coverage", "vendor", ".venv", "venv", "__pycache__", ".git", "graphify-out",
+}
+# Dossiers de tests : ignorés pour les failles de code (fausses entrées volontaires),
+# mais PAS pour les secrets (une vraie clé dans un test reste une vraie fuite).
+TEST_DIRS = {"test", "tests", "__tests__", "__mocks__", "fixtures", "e2e", "cypress"}
+# Fichiers écrits par nos propres Pull Requests de correction : ils citent les failles corrigées.
+EXCLUDED_FILES = ("SECURITY_FIXES*.md",)
+
+
+def is_excluded(rel_path: Optional[str], category: str = "") -> bool:
+    """Vrai si la faille vient d'un fichier qu'on ne doit pas auditer."""
+    import fnmatch
+
+    if not rel_path or "://" in rel_path or rel_path.startswith("supabase:"):
+        return False
+    parts = Path(rel_path).parts
+    extra = {d.strip() for d in os.getenv("VIBEAUDIT_EXCLUDE_DIRS", "").split(",") if d.strip()}
+    if any(p in EXCLUDED_DIRS or p in extra for p in parts[:-1]):
+        return True
+    if any(fnmatch.fnmatch(parts[-1], pat) for pat in EXCLUDED_FILES):
+        return True
+    if category != "secret" and any(p.lower() in TEST_DIRS for p in parts[:-1]):
+        return True
+    return False
+
+
 class ScannerSkipped(Exception):
     """Le scanner ne peut pas tourner (outil absent, token manquant...). Ce n'est pas une erreur."""
 

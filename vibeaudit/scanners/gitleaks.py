@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List
 
 from ..core.models import Evidence, Finding
-from .base import read_snippet, require_binary, run_cmd, to_rel
+from .base import find_line, read_snippet, require_binary, run_cmd, to_rel
 
 NAME = "gitleaks"
 
@@ -46,16 +46,21 @@ def scan(root: Path, timeout: int = 600) -> List[Finding]:
     findings: List[Finding] = []
     for leak in data or []:
         rel = to_rel(root, leak.get("File", ""))
-        line = leak.get("StartLine")
+        secret = leak.get("Secret", "") or ""
         in_history = bool(leak.get("Commit"))
-        still_present = (root / rel).exists()
-        where = []
-        if still_present:
-            where.append("present in the current code")
-        if in_history:
-            where.append(f"present in git history (commit {leak['Commit'][:8]})")
-        public = _is_public_key(leak.get("Secret", ""))
+        # La clé est-elle encore DANS le fichier actuel ? (et pas seulement : le fichier existe-t-il ?)
+        line = find_line(root, rel, secret) if secret and (root / rel).is_file() else None
+        still_present = line is not None
+        if not still_present and not in_history:
+            line = leak.get("StartLine")  # scan sans git : on garde la position donnée par gitleaks
+            still_present = (root / rel).is_file()
+        public = _is_public_key(secret)
+        rule = leak.get("RuleID", "secret")
+        ev = [Evidence(source=NAME, rule_id=rule, raw=leak)]
+
         if public:
+            if not still_present:
+                continue  # clé publique par conception, retirée du code : rien à signaler
             findings.append(
                 Finding(
                     category="secret",
@@ -63,32 +68,55 @@ def scan(root: Path, timeout: int = 600) -> List[Finding]:
                     severity="low",
                     file=rel,
                     line=line,
-                    snippet=read_snippet(root, rel, line) if still_present else None,
+                    snippet=read_snippet(root, rel, line),
                     description=("Public key by design (Supabase publishable/anon, Stripe publishable). "
                                  "Not a leak in itself, but all security then rests on the access rules "
                                  "(row level security of each Supabase table)."),
                     fix_hint="Check that row level security is enabled on every table (Supabase > Advisors > Security).",
-                    evidence=[Evidence(source=NAME, rule_id=leak.get("RuleID", ""), raw=leak)],
+                    evidence=ev,
                 )
             )
             continue
-        findings.append(
-            Finding(
-                category="secret",
-                title=f"Exposed secret: {leak.get('RuleID', 'secret')}",
-                severity="critical",  # choix C : tout secret est critique
-                file=rel,
-                line=line,
-                snippet=read_snippet(root, rel, line) if still_present else None,
-                description=(leak.get("Description", "") + " (" + ", ".join(where) + ")").strip(),
-                cwe=["CWE-798"],
-                fix_hint=(
-                    "Revoke the key at the provider and generate a new one, move it out of the code "
-                    "(server-side environment variable), then clean the git history if needed."
-                ),
-                evidence=[Evidence(source=NAME, rule_id=leak.get("RuleID", ""), raw=leak)],
+
+        if still_present:
+            findings.append(
+                Finding(
+                    category="secret",
+                    title=f"Exposed secret: {rule}",
+                    severity="critical",  # choix C : tout secret présent dans le code est critique
+                    file=rel,
+                    line=line,
+                    snippet=read_snippet(root, rel, line),
+                    description=(leak.get("Description", "") + " (present in the current code)").strip(),
+                    cwe=["CWE-798"],
+                    fix_hint=(
+                        "Revoke the key at the provider and generate a new one, then move it out of the code "
+                        "(server-side environment variable)."
+                    ),
+                    evidence=ev,
+                )
             )
-        )
+        else:
+            # Retirée du code mais toujours lisible dans l'historique git : le seul vrai correctif
+            # est de révoquer la clé (réécrire l'historique ne suffit pas, il a pu être copié).
+            findings.append(
+                Finding(
+                    category="secret",
+                    title=f"Secret removed from the code but still in git history: {rule}",
+                    severity="high",
+                    file=rel,
+                    line=None,
+                    snippet=None,
+                    description=(leak.get("Description", "") +
+                                 f" (no longer in the current code, still readable in commit {leak['Commit'][:8]})").strip(),
+                    cwe=["CWE-798"],
+                    fix_hint=(
+                        "Revoke this key at the provider. Once revoked, the old value in the history is harmless. "
+                        "Rewriting git history is optional and does not replace revocation."
+                    ),
+                    evidence=ev,
+                )
+            )
     return findings
 
 
