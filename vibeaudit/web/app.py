@@ -129,11 +129,15 @@ async def start_audit(request: Request):
             raise HTTPException(400, "Invalid GitHub repository. Use owner/name or a github.com URL.")
         if repo_url.count("/") == 1 and not repo_url.startswith("http"):
             repo_url = "https://github.com/" + repo_url
+        # Strict allowlist: only accept https://github.com/<owner>/<repo> (no other hosts, no redirects to internal targets)
+        gh_parts = parse_github_url(repo_url)
+        if not gh_parts or len(gh_parts) < 2 or not all(gh_parts[:2]):
+            raise HTTPException(400, "Invalid GitHub repository. Use owner/name or a github.com URL.")
+        owner, name = gh_parts[0], gh_parts[1].replace(".git", "")
+        repo_url = f"https://github.com/{owner}/{name}"
         # jeton d'installation court pour cloner (y compris privé), jamais stocké
         if github_app.is_configured():
-            parts = [x for x in repo_url.split("/") if x]
-            if len(parts) >= 2:
-                github_token = github_app.token_for_repo(parts[-2], parts[-1].replace(".git", ""))
+            github_token = github_app.token_for_repo(owner, name)
 
     if not (repo_url or app_url or local_root):
         raise HTTPException(400, "Provide an app URL, a GitHub repo, or a ZIP.")
@@ -333,6 +337,8 @@ def delete_project(project_id: str, request: Request):
     user = _current_user(request)
     if not user:
         raise HTTPException(401, "Sign in first.")
+    if not project_id or not re.fullmatch(r"[A-Za-z0-9_-]+", project_id):
+        raise HTTPException(400, "Invalid project id.")
     ids = db.delete_project(user["db_id"], project_id)
     for aid in ids:
         STORE.delete(aid)
