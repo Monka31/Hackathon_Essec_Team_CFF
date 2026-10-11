@@ -120,7 +120,10 @@ def regen_lockfile(package_json: str, old_lock: str, timeout: int = 240) -> Tupl
         return None, "npm is not installed on the server"
     with tempfile.TemporaryDirectory(prefix="va-lock-") as d:
         Path(d, "package.json").write_text(package_json, encoding="utf-8")
-        Path(d, "package-lock.json").write_text(old_lock, encoding="utf-8")
+        # Lockfile d'origine si on l'a : npm garde alors les versions transitives figées et le diff reste
+        # minimal. Sinon on laisse npm en créer un neuf à partir de package.json (correctif quand même valide).
+        if old_lock and old_lock.strip():
+            Path(d, "package-lock.json").write_text(old_lock, encoding="utf-8")
         try:
             proc = subprocess.run(
                 ["npm", "install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund"],

@@ -749,11 +749,7 @@ def _fix_dependencies(deps: List[Dict[str, Any]], tree_set, read, current, outco
         return None
 
     if lock is None:
-        current["package.json"] = pj
-        for fid, p in planned.items():
-            outcomes[fid] = "applied_unverified"
-            notes[fid] = f"{p['bump']}. No package-lock.json in the repo: run 'npm install' after merging."
-        return None
+        lock = ""   # pas de lockfile lisible : on en GÉNÈRE un neuf avec npm, plutôt que de renvoyer l'humain vers 'npm install'
     new_lock, msg = fix_checks.regen_lockfile(pj, lock)
     if not new_lock:
         # Jamais de package.json modifié sans le lockfile qui va avec : on n'applique rien

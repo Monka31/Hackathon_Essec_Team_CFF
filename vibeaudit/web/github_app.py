@@ -158,11 +158,32 @@ def create_branch(owner: str, repo: str, new_branch: str, from_sha: str, token: 
 def get_file(owner: str, repo: str, path: str, ref: str, token: str) -> Optional[Dict[str, Any]]:
     r = requests.get(f"{API}/repos/{owner}/{repo}/contents/{path}", headers=_repo_headers(token),
                      params={"ref": ref}, timeout=_TIMEOUT)
-    if r.status_code != 200:
+    if r.status_code == 200:
+        j = r.json()
+        if isinstance(j, dict) and j.get("content"):
+            content = base64.b64decode(j["content"]).decode("utf-8", errors="replace")
+            return {"sha": j["sha"], "content": content}
+    # Fichier > 1 Mo : l'API contents renvoie 403/vide. On récupère le sha via le listing du dossier,
+    # puis le contenu via l'API blobs (jusqu'à 100 Mo). Indispensable pour les gros package-lock.json.
+    return _get_large_file(owner, repo, path, ref, token)
+
+
+def _get_large_file(owner: str, repo: str, path: str, ref: str, token: str) -> Optional[Dict[str, Any]]:
+    folder, name = (path.rsplit("/", 1) + [""])[:2] if "/" in path else ("", path)
+    lr = requests.get(f"{API}/repos/{owner}/{repo}/contents/{folder}", headers=_repo_headers(token),
+                      params={"ref": ref}, timeout=_TIMEOUT)
+    if lr.status_code != 200 or not isinstance(lr.json(), list):
         return None
-    j = r.json()
-    content = base64.b64decode(j["content"]).decode("utf-8", errors="replace") if j.get("content") else ""
-    return {"sha": j["sha"], "content": content}
+    entry = next((e for e in lr.json() if e.get("path") == path or e.get("name") == name), None)
+    if not entry or not entry.get("sha"):
+        return None
+    br = requests.get(f"{API}/repos/{owner}/{repo}/git/blobs/{entry['sha']}", headers=_repo_headers(token),
+                      timeout=_TIMEOUT)
+    if br.status_code != 200:
+        return None
+    bj = br.json()
+    content = base64.b64decode(bj["content"]).decode("utf-8", errors="replace") if bj.get("content") else ""
+    return {"sha": entry["sha"], "content": content}
 
 
 def put_file(owner: str, repo: str, path: str, new_content: str, message: str, branch: str,
