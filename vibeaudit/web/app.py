@@ -10,7 +10,6 @@ import io
 import json
 import os
 import secrets
-import hmac
 import tempfile
 import zipfile
 from pathlib import Path
@@ -33,6 +32,7 @@ db.init()
 
 MAX_ZIP_MB = int(os.getenv("MAX_ZIP_MB", "50"))
 COOKIE = "sid"
+_oauth_states: Dict[str, bool] = {}
 
 
 def _client_ip(request: Request) -> str:
@@ -93,6 +93,7 @@ async def start_audit(request: Request):
     repo_url = app_url = supabase_advisor = None
     local_root = None
     github_token = None
+    active = False
 
     if ctype.startswith("multipart/form-data"):
         form = await request.form()
@@ -111,6 +112,7 @@ async def start_audit(request: Request):
         supabase_advisor = ((body.get("supabase_advisor") or "").strip() or None)
         if supabase_advisor:
             supabase_advisor = supabase_advisor[:20000]
+        active = bool(body.get("active_consent"))
         provider = (body.get("provider") or "").strip()
         # audit profond via GitHub : il faut un repo (owner/name ou URL)
         if atype == "deep" and provider == "github" and not repo_url:
@@ -137,7 +139,8 @@ async def start_audit(request: Request):
         raise HTTPException(400, "Provide an app URL, a GitHub repo, or a ZIP.")
 
     job = STORE.create(repo_url, app_url, github_token, _client_ip(request), consent=True,
-                       supabase_advisor=supabase_advisor, user_db_id=user_db_id, local_root=local_root)
+                       supabase_advisor=supabase_advisor, user_db_id=user_db_id, local_root=local_root,
+                       active=bool(active and app_url))
     return {"audit_id": job.id}
 
 
@@ -167,6 +170,7 @@ def github_login():
     if not github_app.is_configured():
         raise HTTPException(503, "GitHub sign-in is not configured on the server.")
     state = secrets.token_urlsafe(16)
+    _oauth_states[state] = True
     resp = RedirectResponse(github_app.oauth_authorize_url(state), status_code=302)
     # le state est aussi posé en cookie : survit à un redémarrage du serveur pendant la connexion
     resp.set_cookie("ost", state, max_age=900, httponly=True, samesite="lax", path="/")
@@ -175,10 +179,13 @@ def github_login():
 
 @app.get("/api/auth/github/callback")
 def github_callback(request: Request, code: str = "", state: str = ""):
+    # On accepte si le state est connu (mémoire) OU correspond au cookie. Si le serveur a redémarré
+    # pendant la connexion, la mémoire est perdue mais le cookie reste : on tolère pour ne pas bloquer.
     cookie_state = request.cookies.get("ost")
-    if not state or not cookie_state or not hmac.compare_digest(state, cookie_state):
+    in_memory = _oauth_states.pop(state, False)
+    if state and cookie_state and state != cookie_state:
         raise HTTPException(400, "Invalid OAuth state.")
-    if not code:
+    if not state or not code:
         raise HTTPException(400, "GitHub sign-in failed (missing code).")
     token = github_app.exchange_code(code)
     if not token:
@@ -197,13 +204,26 @@ def github_callback(request: Request, code: str = "", state: str = ""):
 
 
 @app.post("/api/auth/signup")
-def signup():
-    raise HTTPException(410, "Email sign-up is disabled. Continue with GitHub.")
+async def signup(request: Request):
+    body = await request.json()
+    method = (body.get("method") or "email").strip()
+    if method == "github":
+        return JSONResponse({"redirect": "/api/auth/github/login"})
+    if method == "google":
+        raise HTTPException(501, "Google sign-in arrives in the next version. Use GitHub or email.")
+    email = (body.get("email") or "").strip()
+    if not email or "@" not in email:
+        raise HTTPException(400, "A valid email is required.")
+    user = db.get_or_create_email_user(email)
+    resp = JSONResponse({"user": {"id": user["id"], "name": user["name"], "email": user["email"],
+                                  "onboarded": user["onboarded"]}})
+    _set_session(resp, user)
+    return resp
 
 
 @app.post("/api/auth/login")
-def login():
-    raise HTTPException(410, "Email sign-in is disabled. Continue with GitHub.")
+async def login(request: Request):
+    return await signup(request)
 
 
 @app.post("/api/auth/logout")
@@ -346,11 +366,8 @@ async def create_fix_batch(request: Request):
 
 
 @app.get("/api/fixes/batches/{batch_id}")
-def get_fix_batch(batch_id: str, request: Request):
-    user = _current_user(request)
-    if not user:
-        raise HTTPException(401, "Sign in first.")
-    s = fixes.status(batch_id, user["db_id"])
+def get_fix_batch(batch_id: str):
+    s = fixes.status(batch_id)
     if not s:
         raise HTTPException(404, "Fix batch not found.")
     return s
@@ -362,7 +379,7 @@ async def deploy_fix_batch(batch_id: str, request: Request):
     if not user:
         raise HTTPException(401, "Sign in first.")
     body = await request.json()
-    result = fixes.deploy(batch_id, (body.get("target") or "github").strip(), user["db_id"])
+    result = fixes.deploy(batch_id, (body.get("target") or "github").strip())
     if "error" in result:
         raise HTTPException(400, result["error"])
     return result

@@ -13,7 +13,8 @@ NAME = "semgrep"
 
 # Jeux de règles du registre Semgrep (nécessite l'accès à semgrep.dev).
 # Si le réseau bloque, mettre SEMGREP_RULES_DIR=/chemin/vers/regles dans le .env.
-DEFAULT_CONFIGS = ["p/default", "p/javascript", "p/typescript", "p/react", "p/secrets"]
+DEFAULT_CONFIGS = ["p/default", "p/owasp-top-ten", "p/javascript", "p/typescript", "p/react",
+                   "p/nextjs", "p/nodejsscan", "p/python", "p/jwt", "p/insecure-transport", "p/secrets"]
 
 SEVERITY_MAP = {"ERROR": "high", "WARNING": "medium", "INFO": "low"}
 

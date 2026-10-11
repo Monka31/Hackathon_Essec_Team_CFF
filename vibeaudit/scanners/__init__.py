@@ -3,7 +3,7 @@
 - SCANNERS : analysent le code d'un dossier (repo cloné). Signature : scan(root: Path) -> List[Finding]
 - URL_SCANNERS : analysent l'appli en ligne. Signature : scan_url(url: str) -> List[Finding]
 """
-from . import gitleaks, npm_audit, semgrep, snyk, snyk_dast, supabase, trufflehog, web_passive
+from . import active_probe, gitleaks, npm_audit, semgrep, snyk, snyk_dast, supabase, trufflehog, web_passive
 
 SCANNERS = {
     "snyk_code": snyk.scan_code,
@@ -32,6 +32,7 @@ LABELS = {
     "supabase": "Supabase Advisor (base de données)",
     "web_passive": "Tests passifs (appli en ligne)",
     "snyk_dast": "Snyk API & Web (DAST, appli en ligne)",
+    "active_probe": "Tests actifs non destructifs (appli en ligne)",
     "clone": "Clonage du repo",
     "ai": "Explications IA",
     "report": "Rapport",

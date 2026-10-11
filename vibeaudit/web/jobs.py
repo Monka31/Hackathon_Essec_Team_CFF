@@ -55,8 +55,6 @@ class Job:
     message: str = ""
     steps: Dict[str, Dict[str, str]] = field(default_factory=dict)
     log: List[str] = field(default_factory=list)
-    step_started_at: Dict[str, float] = field(default_factory=dict)
-    step_durations: Dict[str, float] = field(default_factory=dict)
     score: Optional[int] = None
     grade: Optional[str] = None
     counts: Dict[str, int] = field(default_factory=dict)
@@ -114,7 +112,8 @@ class JobStore:
     def create(self, repo_url: Optional[str], app_url: Optional[str], github_token: Optional[str],
                client_ip: str, consent: bool, supabase_advisor: Optional[str] = None,
                user_db_id: Optional[int] = None, project_id: Optional[str] = None,
-               project_name: Optional[str] = None, local_root: Optional[str] = None) -> Job:
+               project_name: Optional[str] = None, local_root: Optional[str] = None,
+               active: bool = False) -> Job:
         from . import adapter, db
         job = Job(id=secrets.token_urlsafe(9), repo_url=repo_url, app_url=app_url, created_at=_now())
         job.user_db_id = user_db_id
@@ -128,6 +127,8 @@ class JobStore:
             steps += list(SCANNERS)
         if app_url:
             steps += list(URL_SCANNERS)
+        if app_url and active:
+            steps.append("active_probe")
         if supabase_advisor:
             steps.append("supabase_paste")
         steps += ["ai", "report"]
@@ -148,20 +149,14 @@ class JobStore:
         audit_log("job_created", job=job.id, ip=client_ip, repo=repo_url, url=app_url,
                   owner_consent=consent, private_repo_token=bool(github_token),
                   supabase_paste=bool(supabase_advisor), user=user_db_id)
-        self.pool.submit(self._run, job, github_token, supabase_advisor, local_root)
+        self.pool.submit(self._run, job, github_token, supabase_advisor, local_root, active)
         return job
 
     def _step(self, job: Job, name: str, status: str, message: str = "") -> None:
         with self.lock:
             if name in job.steps:
-                previous = job.steps[name]["status"]
-                if status == "running" and previous != "running":
-                    job.step_started_at[name] = time.time()
-                elif status in ("ok", "skipped", "error") and name in job.step_started_at:
-                    job.step_durations[name] = round(max(0, time.time() - job.step_started_at.pop(name)), 1)
                 job.steps[name].update(status=status, message=message[:400])
-            job.log.append(f"{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC · {LABELS.get(name, name)} · {message or status}")
-            job.log = job.log[-300:]
+            job.log.append(f"{datetime.now().strftime('%H:%M:%S')} {LABELS.get(name, name)} : {message or status}")
         self.save(job)
 
     def _write_report(self, job: Job, runs, final: bool, ai: bool = False, context=None) -> None:
@@ -204,7 +199,7 @@ class JobStore:
         self.save(job)
 
     def _run(self, job: Job, github_token: Optional[str], supabase_advisor: Optional[str] = None,
-             local_root: Optional[str] = None) -> None:
+             local_root: Optional[str] = None, active: bool = False) -> None:
         job.status = "running"
         self.save(job)
         workdir = None
@@ -263,6 +258,18 @@ class JobStore:
                 runs += run_url_scanners(job.app_url, skip={"snyk_dast"},
                                          progress=lambda n, s, m: self._step(job, n, s, m))
                 dast_pending = "snyk_dast" in job.steps
+
+            if job.app_url and active and "active_probe" in job.steps:
+                self._step(job, "active_probe", "running", "tests actifs non destructifs")
+                try:
+                    from ..scanners import active_probe as _ap
+                    from ..core.models import ScannerRun
+                    ap_findings = _ap.scan_url(job.app_url)
+                    runs.append(ScannerRun(name="active_probe", status="ok",
+                                           message=f"{len(ap_findings)} résultat(s)", findings=ap_findings))
+                    self._step(job, "active_probe", "ok", f"{len(ap_findings)} résultat(s)")
+                except Exception as e:
+                    self._step(job, "active_probe", "error", f"tests actifs impossibles : {str(e)[:150]}")
 
             if supabase_advisor and "supabase_paste" in job.steps:
                 self._step(job, "supabase_paste", "running", "lecture du rapport collé")
