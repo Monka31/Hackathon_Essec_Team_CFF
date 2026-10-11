@@ -109,8 +109,10 @@ def _anthropic(system: str, prompt: str, max_tokens: int, schema: Optional[dict]
         "https://api.anthropic.com/v1/messages", data=json.dumps(payload).encode(), method="POST",
         headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
     )
+    if req.full_url.split(":", 1)[0].lower() != "https":
+        raise LLMError("URL API Claude invalide : seul https est autorisé")
     try:
-        with urllib.request.urlopen(req, timeout=180) as r:
+        with urllib.request.urlopen(req, timeout=180) as r:  # nosec B310 - schéma validé ci-dessus (https uniquement)
             data = json.loads(r.read().decode())
     except urllib.error.HTTPError as e:
         if e.code in (401, 403):
