@@ -317,6 +317,8 @@ def delete_project(project_id: str, request: Request):
     user = _current_user(request)
     if not user:
         raise HTTPException(401, "Sign in first.")
+    if not project_id or not re.fullmatch(r"[A-Za-z0-9_-]+", project_id):
+        raise HTTPException(400, "Invalid project id.")
     ids = db.delete_project(user["db_id"], project_id)
     for aid in ids:
         STORE.delete(aid)
