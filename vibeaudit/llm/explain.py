@@ -40,6 +40,11 @@ The 4 explanation levels (write each in the JSON field named, in English):
 - "expert" (Expert): 5-8 sentences. Data flow (source to sink) or dependency chain, CWE and OWASP category,
   exploitation conditions and limits, edge cases, defense in depth, how to verify the fix works.
 
+fix_steps: 1 to 4 steps that fix THIS issue only, in this repository, each a concrete code or version change.
+Do NOT list chores the platform already performs or that belong to merging (installing packages, running npm audit,
+running the build or test suite), and do NOT add unrelated advice (CI configuration, deleting files, general hardening).
+If the whole fix is a dependency bump, a single step is enough.
+
 Record your analysis with the provided tool: all fields are required. Keep it concise (8 sentences max at expert level)."""
 
 LEVEL = {"type": "string"}
@@ -55,7 +60,7 @@ FINDING_SCHEMA = {
         "confidence": {"type": "string", "enum": ["haute", "moyenne", "faible"]},
         "confidence_reason": {"type": "string", "description": "une phrase : sur quoi repose ton niveau de confiance"},
         "attack_scenario": {"type": "string", "description": "2 phrases : comment un attaquant procéderait, ou pourquoi ce n'est pas exploitable ici"},
-        "fix_steps": {"type": "array", "items": {"type": "string"}, "description": "2 à 5 étapes de correction concrètes"},
+        "fix_steps": {"type": "array", "items": {"type": "string"}, "description": "1 à 4 étapes qui corrigent CETTE faille seulement (pas de npm install/audit/tests, pas de recommandations hors-sujet comme la CI ou le ménage de fichiers)"},
         "prompt_injection_detected": {"type": "boolean"},
         "injection_note": {"type": "string"},
     },
@@ -115,7 +120,7 @@ def _clean(result: Dict[str, Any], f: Dict[str, Any]) -> Dict[str, Any]:
         "confidence": conf,
         "confidence_reason": str(result.get("confidence_reason", ""))[:400],
         "attack_scenario": str(result.get("attack_scenario", ""))[:800],
-        "fix_steps": [str(s)[:300] for s in steps[:6]],
+        "fix_steps": [str(s)[:300] for s in steps[:4]],
         "prompt_injection_detected": bool(result.get("prompt_injection_detected")),
         "injection_note": str(result.get("injection_note", ""))[:400],
     }

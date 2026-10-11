@@ -269,17 +269,21 @@ def audit_lockfile(package_json: str, lock: str, timeout: int = 180) -> Optional
     return data.get("vulnerabilities") or {}
 
 
-def npm_audit_fix(package_json: str, lock: str, timeout: int = 240) -> Tuple[Optional[str], Optional[str], str]:
+def npm_audit_fix(package_json: str, lock: str, timeout: int = 240,
+                  force: bool = False) -> Tuple[Optional[str], Optional[str], str]:
     """`npm audit fix` sans rien installer ni exécuter : pour les dépendances dont le scanner ne donne pas
-    de version cible. Retour (package.json, lockfile, message), ou (None, None, raison)."""
+    de version cible. force=True ajoute --force (peut monter des versions majeures). Retour (package.json,
+    lockfile, message), ou (None, None, raison)."""
     if not shutil.which("npm"):
         return None, None, "npm is not installed on the server"
     with tempfile.TemporaryDirectory(prefix="va-fix-") as d:
         Path(d, "package.json").write_text(package_json, encoding="utf-8")
         Path(d, "package-lock.json").write_text(lock, encoding="utf-8")
+        cmd = ["npm", "audit", "fix", "--package-lock-only", "--ignore-scripts", "--no-fund"]
+        if force:
+            cmd.append("--force")
         try:
-            subprocess.run(["npm", "audit", "fix", "--package-lock-only", "--ignore-scripts", "--no-fund"],
-                           cwd=d, capture_output=True, text=True, timeout=timeout)
+            subprocess.run(cmd, cwd=d, capture_output=True, text=True, timeout=timeout)
         except (subprocess.TimeoutExpired, OSError) as e:
             return None, None, f"npm audit fix did not finish ({type(e).__name__})"
         new_pj = Path(d, "package.json").read_text(encoding="utf-8")
