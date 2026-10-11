@@ -1178,18 +1178,39 @@ async function screenFixes(projectId, select) {
     }
     const dep = document.getElementById('deploy');
     if (dep) dep.addEventListener('click', async () => {
-      dep.disabled = true; dep.textContent = 'Opening the pull request…';
-      try {
-        const { pr_url } = await api.deployBatch(batch, 'github');
-        dep.textContent = 'Pull request opened'; toast('Pull request opened'); window.open(pr_url, '_blank', 'noopener');
-      } catch (e) {
+      dep.disabled = true; dep.textContent = 'Starting the agent…';
+      const fail = (msg) => {
         dep.disabled = false; dep.textContent = 'Deploy to GitHub';
-        const msg = e.message || '';
         if (/not installed|install/i.test(msg)) toast('Install the Syberia GitHub App on this repo (Install button in the app settings), then retry');
         else if (/no connected GitHub repo|no pull request|has no connected/i.test(msg)) toast('This audit was run on a URL or a ZIP, so there is no repo to open a PR against. Run a deep audit on your GitHub repository to enable fixes.');
         else if (/not configured|Sign in/i.test(msg)) toast('Connect GitHub to deploy the fix');
         else toast('Deploy failed: ' + msg);
-      }
+      };
+      const succeed = (pr_url, res) => {
+        dep.textContent = 'Pull request opened';
+        toast((res && res.resolved != null) ? `Pull request opened — ${res.resolved}/${res.total} issues fixed` : 'Pull request opened');
+        if (pr_url) window.open(pr_url, '_blank', 'noopener');
+      };
+      try {
+        const r = await api.deployBatch(batch, 'github');
+        if (r && r.pr_url) { succeed(r.pr_url, r); return; }         // déjà prêt
+        if (!r || r.status !== 'deploying') { succeed(r && r.pr_url, r); return; }
+        // L'agent travaille en arrière-plan : on suit l'avancement.
+        dep.textContent = 'The agent is writing the fixes…';
+        const started = Date.now();
+        const tick = async () => {
+          if (Date.now() - started > 15 * 60 * 1000) { fail('timed out'); return; }
+          let s;
+          try { s = await api.getFixBatch(batch); } catch (e) { setTimeout(tick, 2500); return; }
+          const d = (s && s.deploy) || null;
+          if (d && d.message) dep.textContent = d.message;
+          if (!d || d.state === 'running') { setTimeout(tick, 2500); return; }
+          if (d.state === 'error') { fail(d.error || 'Deploy failed'); return; }
+          if (d.state === 'done') { succeed(d.pr_url, d); return; }
+          setTimeout(tick, 2500);
+        };
+        setTimeout(tick, 2000);
+      } catch (e) { fail(e.message || ''); }
     });
     const zip = document.getElementById('zipDl');
     if (zip) zip.addEventListener('click', () => toast('ZIP download arrives in the next version — use Deploy to GitHub to open the pull request'));

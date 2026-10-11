@@ -9,7 +9,6 @@ import base64
 import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import quote
 
 import jwt
 import requests
@@ -157,8 +156,7 @@ def create_branch(owner: str, repo: str, new_branch: str, from_sha: str, token: 
 
 
 def get_file(owner: str, repo: str, path: str, ref: str, token: str) -> Optional[Dict[str, Any]]:
-    safe_path = quote(path, safe="/")
-    r = requests.get(f"{API}/repos/{owner}/{repo}/contents/{safe_path}", headers=_repo_headers(token),
+    r = requests.get(f"{API}/repos/{owner}/{repo}/contents/{path}", headers=_repo_headers(token),
                      params={"ref": ref}, timeout=_TIMEOUT)
     if r.status_code != 200:
         return None
@@ -173,10 +171,34 @@ def put_file(owner: str, repo: str, path: str, new_content: str, message: str, b
             "content": base64.b64encode(new_content.encode("utf-8")).decode("ascii")}
     if sha:
         body["sha"] = sha
-    safe_path = quote(path, safe="/")
-    r = requests.put(f"{API}/repos/{owner}/{repo}/contents/{safe_path}", headers=_repo_headers(token),
+    r = requests.put(f"{API}/repos/{owner}/{repo}/contents/{path}", headers=_repo_headers(token),
                      json=body, timeout=_TIMEOUT)
     return r.status_code in (200, 201)
+
+
+def list_tree(owner: str, repo: str, ref: str, token: str, limit: int = 400) -> List[str]:
+    """Liste (plate) des chemins de fichiers du repo, pour donner le contexte projet à l'agent.
+    Bornée pour rester lisible ; ignore les dossiers lourds (node_modules, .git, build...)."""
+    sha = branch_sha(owner, repo, ref, token)
+    if not sha:
+        return []
+    r = requests.get(f"{API}/repos/{owner}/{repo}/git/trees/{sha}", headers=_repo_headers(token),
+                     params={"recursive": "1"}, timeout=_TIMEOUT)
+    if r.status_code != 200:
+        return []
+    skip = ("node_modules/", ".git/", "dist/", "build/", ".next/", "vendor/", ".venv/",
+            "venv/", "__pycache__/", ".cache/", "coverage/", "out/")
+    out: List[str] = []
+    for node in r.json().get("tree", []):
+        if node.get("type") != "blob":
+            continue
+        path = node.get("path", "")
+        if any(s in ("/" + path + "/") or path.startswith(s) for s in skip):
+            continue
+        out.append(path)
+        if len(out) >= limit:
+            break
+    return out
 
 
 def app_slug() -> Optional[str]:
@@ -228,13 +250,3 @@ def open_pull_request(owner: str, repo: str, head: str, base: str, title: str, b
     if r.status_code in (200, 201):
         return r.json().get("html_url")
     return None
-
-
-def pull_request_status(owner: str, repo: str, number: int, token: str) -> Optional[Dict[str, Any]]:
-    """Return the current state of a PR without exposing the installation token."""
-    r = requests.get(f"{API}/repos/{owner}/{repo}/pulls/{number}",
-                     headers=_repo_headers(token), timeout=_TIMEOUT)
-    if r.status_code != 200:
-        return None
-    data = r.json()
-    return {"state": data.get("state"), "merged": bool(data.get("merged"))}
