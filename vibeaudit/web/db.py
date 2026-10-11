@@ -96,20 +96,6 @@ def get_or_create_github_user(github_id: int, login: str, name: str, email: Opti
         return _row_user(r)
 
 
-def get_or_create_email_user(email: str) -> Dict[str, Any]:
-    """Compte léger par email (démo, sans mot de passe)."""
-    name = email.split("@")[0] if email else "Founder"
-    with _lock, _conn() as c:
-        r = c.execute("SELECT * FROM users WHERE email=? AND method='email'", (email,)).fetchone()
-        if r:
-            return _row_user(r)
-        cur = c.execute(
-            "INSERT INTO users (login, name, email, method, created_at) VALUES (?,?,?, 'email', ?)",
-            (name, name, email, _now()))
-        r = c.execute("SELECT * FROM users WHERE id=?", (cur.lastrowid,)).fetchone()
-        return _row_user(r)
-
-
 def get_user(db_id: int) -> Optional[Dict[str, Any]]:
     with _conn() as c:
         r = c.execute("SELECT * FROM users WHERE id=?", (db_id,)).fetchone()

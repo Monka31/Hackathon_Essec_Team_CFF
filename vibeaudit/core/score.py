@@ -1,4 +1,4 @@
-"""Score de sécurité sur 100 (choix D)."""
+"""Heuristic security score on 100; it is not a security certification."""
 from __future__ import annotations
 
 from typing import Dict, List
@@ -9,8 +9,7 @@ PENALTIES = {"critical": 25, "high": 10, "medium": 3, "low": 1}
 # Plafond de pénalité par catégorie : un seul type de problème (ex : dépendances) ne peut pas,
 # à lui seul, mettre le score à zéro. Un projet au code propre mais aux dépendances à jour de rien
 # garde ainsi un score parlant au lieu de 0.
-import os as _os
-CATEGORY_CAP = int(_os.getenv("SCORE_CATEGORY_CAP", "40"))
+CATEGORY_CAP = 40
 
 
 def count_by_severity(findings: List[Finding]) -> Dict[str, int]:

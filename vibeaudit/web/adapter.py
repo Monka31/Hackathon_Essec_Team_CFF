@@ -157,9 +157,9 @@ def _finding(f: Dict[str, Any], project_id: str, found_at: str) -> Dict[str, Any
         "code": _code(f.get("snippet")),
         "proof": {
             "confirmed": cross,
-            "text": ("confirmed by two independent scanners (" + ", ".join(sources) + ")")
-                    if cross else ("detected by " + (sources[0] if sources else "scanner")
-                                   + " (static analysis, not an active attack test)"),
+            "text": ("corroborated by multiple scanners (" + ", ".join(sources) + ")")
+                    if cross else ("reported by " + (sources[0] if sources else "scanner")
+                                   + "; this finding was not confirmed by a live exploit test"),
         },
         "fix_status": "open",
         "found_at": found_at,

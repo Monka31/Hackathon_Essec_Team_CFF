@@ -9,6 +9,7 @@ import base64
 import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 import jwt
 import requests
@@ -156,7 +157,8 @@ def create_branch(owner: str, repo: str, new_branch: str, from_sha: str, token: 
 
 
 def get_file(owner: str, repo: str, path: str, ref: str, token: str) -> Optional[Dict[str, Any]]:
-    r = requests.get(f"{API}/repos/{owner}/{repo}/contents/{path}", headers=_repo_headers(token),
+    safe_path = quote(path, safe="/")
+    r = requests.get(f"{API}/repos/{owner}/{repo}/contents/{safe_path}", headers=_repo_headers(token),
                      params={"ref": ref}, timeout=_TIMEOUT)
     if r.status_code != 200:
         return None
@@ -171,7 +173,8 @@ def put_file(owner: str, repo: str, path: str, new_content: str, message: str, b
             "content": base64.b64encode(new_content.encode("utf-8")).decode("ascii")}
     if sha:
         body["sha"] = sha
-    r = requests.put(f"{API}/repos/{owner}/{repo}/contents/{path}", headers=_repo_headers(token),
+    safe_path = quote(path, safe="/")
+    r = requests.put(f"{API}/repos/{owner}/{repo}/contents/{safe_path}", headers=_repo_headers(token),
                      json=body, timeout=_TIMEOUT)
     return r.status_code in (200, 201)
 
